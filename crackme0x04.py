@@ -1,4 +1,3 @@
-from time import sleep
 from pwnlib.tubes.process import process
 
 
