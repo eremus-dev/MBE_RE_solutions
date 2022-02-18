@@ -343,7 +343,6 @@ void check(char *param_1){
 
 #### Solution Script
 ```python
-from time import sleep
 from pwnlib.tubes.process import process
 
 
@@ -369,3 +368,104 @@ if __name__ == "__main__":
     for i in possible:
         main(i)
 ```
+
+## Crackme0x05
+#### Reversing - High level Description
+
+The control flow of crackme0x05 is very similar to that of crackme0x04. We still have a main, that accepts a string as an argument and passes it as a parameter to check.
+```c
+int main(void){
+  char input_buff [120];
+
+  printf("IOLI Crackme Level 0x05\n");
+  printf("Password: ");
+  scanf("%s",input_buff);
+  check(input_buff);
+  return 0;
+}
+```
+Check then takes our input string and performs the exact same operations as outlined in crackme0x04 with two core differences. The value checked is now 0x10 or 16 instead of 15, and a new function call is now present called parell, this function is called with the argument if the accumulator sums to 16.
+```c
+
+void check(char *param_1){
+  size_t str_len;
+  char curr_char;
+  uint index;
+  int accumulator;
+  int char_val_as_int;
+
+  accumulator = 0;
+  index = 0;
+  while( true ) {
+    str_len = strlen(param_1);
+    if (str_len <= index) break;
+    curr_char = param_1[index];
+    sscanf(&curr_char,"%d",&char_val_as_int);
+    accumulator = accumulator + char_val_as_int;
+    if (accumulator == 0x10) {
+      parell(param_1);
+    }
+    index = index + 1;
+  }
+  printf("Password Incorrect!\n");
+  return;
+}
+```
+Parell then performs further validation on the string, namely ensuring that the last value present in the string is not an odd number. We can take our solution script from last challenge and alter it so that the string of numbers we are passing in now sum to 16 instead of 15, then we can implement out own filter to ensure that only the positive numbers are passed in to the binary.
+```python
+possible = [
+  "1" * 16, "112345", "961"  # won't work are negative though they sum to 16
+  "2" * 8, "1123414", "54322", "682", "88", "952" # will work are positive and sum to 16
+]
+
+filter(lambda x: int(x) & 1 == 0, possible)
+```
+Though any of the numbers that sums to 16 and has an even final number will be accepted and display the output Password: OK!.
+```bash
+'IOLI Crackme Level 0x05\n'
+'22222222':b'Password: Password OK!\n'
+'IOLI Crackme Level 0x05\n'
+'1123414':b'Password: Password OK!\n'
+'IOLI Crackme Level 0x05\n'
+'54322':b'Password: Password OK!\n'
+'IOLI Crackme Level 0x05\n'
+'682':b'Password: Password OK!\n'
+'IOLI Crackme Level 0x05\n'
+'88':b'Password: Password OK!\n'
+'IOLI Crackme Level 0x05\n'
+'952':b'Password: Password OK!\n'
+```
+
+#### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(passw: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/crackme0x05')
+
+    # receive our title
+    print(crack.recvline(timeout=1))
+
+    # send our passwords
+    passw = bytes(f"{passw}", "utf8")
+    # send our passwords
+    crack.sendline(passw)
+
+    # receive our prompt and our praise
+    resp = crack.recvline(timeout=1)
+    print(f"{passw}:{resp}")
+
+
+if __name__ == "__main__":
+    possible = [
+    "1" * 16, "112345", "961",  # won't work are negative though they sum to 16
+    "2" * 8, "1123414", "54322", "682", "88", "952" # will work are positive and sum to 16
+    ]
+    for i in filter(lambda x: int(x) & 1 == 0, possible):
+        main(i)
+```
+
+## Crackme0x06
+#### Reversing - High level Description
