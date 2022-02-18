@@ -227,7 +227,7 @@ OK, things are starting to get interesting. We've lost the confinement to a sing
 ##### Decompilation
 ```c
 int main(void){
-  undefined4 local_8;
+  int local_8;
 
   printf("IOLI Crackme Level 0x03\n");
   printf("Password: ");
@@ -270,7 +270,7 @@ From this we can see that nothing has really changed, test is ensuring that our 
 from pwnlib.tubes.process import process
 
 
-def main() -> None:
+def main(x: str) -> None:
     # open connection to our challenge binary
     crack = process('./challenges/crackme0x03')
 
@@ -278,16 +278,94 @@ def main() -> None:
     print(crack.recvline(timeout=1))
 
     # send our password
-    crack.sendline(b"338724")
+    crack.sendline(x)
 
     # receive our prompt and our praise
     print(crack.recvline(timeout=1))
 
 
 if __name__ == "__main__":
-    main()
+    for i in range(0, 1000):
+        main(i)
 ```
 
 ## Crackme0x04
 #### Reversing - High level Description
 
+This challenge has the same structure as the proceeding challenge. This script is the first where there are many possible answers. The main function reads a string from stdin and then passes it as an argument to check.
+
+Check is where the password validator logic happens. We can see that the function initialises two variables, which we've renamed accumulator and counter. Counter acts as an index into our string. First the function checks if we counter is past the end of our string and if so prints an error and returns. If we are not a char from our string is converted to a int and summed with the accumulator. If this value ever reaches 0xf or 15 we accept the password. If not yet 15 we continue.
+
+From this we can see that if we ever reach 15 we have a correct password. This means that any string of ints that sum to 15 are correct.  The values provided in the solution script are:
+```python
+possible = ["1" * 15, "2" * 7 + "1", "12345", "54321", "69", "78", "123456", "789"]
+```
+The last two 123456 and 789 obviously don't sum to 15, but the password acceptance condition is met regardless.
+
+#### Decomplitation
+```c
+int main(void){
+  char *input;
+
+  printf("IOLI Crackme Level 0x04\n");
+  printf("Password: ");
+  scanf("%s",&input);
+  check(&input);
+  return 0;
+}
+
+void check(char *param_1){
+  size_t size_check;
+  char current_val;
+  uint counter;
+  int accumulator;
+  int val_to_int;
+
+  accumulator = 0;                          // sum string into accumulator
+  counter = 0;                              // keep track of index into string
+  while( true ) {
+    size_check = strlen(param_1);
+    if (size_check <= counter) {            // ensure we are still within string, if string terminates return error
+      printf("Password Incorrect!\n");
+      return;
+    }
+    current_val = param_1[counter];         // get character at index
+    sscanf(&current_val,"%d",&val_to_int);  // read from string to int
+    accumulator = accumulator + val_to_int; // sum into accumulator
+    if (accumulator == 0xf) break;          // if accumulator == 15 the we accept password
+    counter = counter + 1;                  // increment counter for next index
+  }
+  printf("Password OK!\n");
+  /* WARNING: Subroutine does not return */
+  exit(0);
+}
+```
+
+#### Solution Script
+```python
+from time import sleep
+from pwnlib.tubes.process import process
+
+
+def main(passw: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/crackme0x04')
+
+    # receive our title
+    print(crack.recvline(timeout=1))
+
+    # send our passwords
+    passw = bytes(f"{passw}", "utf8")
+    # send our passwords
+    crack.sendline(passw)
+
+    # receive our prompt and our praise
+    resp = crack.recvline(timeout=1)
+    print(f"{resp}")
+
+
+if __name__ == "__main__":
+    possible = ["1" * 15, "2" * 7 + "1", "12345", "54321", "69", "78", "123456", "789"]
+    for i in possible:
+        main(i)
+```
