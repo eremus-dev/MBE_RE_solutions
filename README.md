@@ -59,7 +59,7 @@ if __name__ == "__main__":
     main()
 ```
 
-## Crackme00b
+## Crackme0x00b
 
 This is identical to the challenge above except expecting a different password, w0wgreat, also stored in the .data section, though this time it is encoded as unicode32 according to Ghidra.
 
@@ -85,7 +85,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 ```
-## Crackme01
+## Crackme0x01
 
 #### Reversing - High level Description
 
@@ -468,4 +468,113 @@ if __name__ == "__main__":
 ```
 
 ## Crackme0x06
+#### Reversing - High level Description
+
+In crackme0x06 we get a new set of functionality that creates a set of abstractions over our crack, and creates another pretty trivial barrier to guessing the password. Our main has one major difference we now have an environment variable being passed to check.
+```c
+int main(int argc,char *argv,char *envp){  // we now have arguments in main
+  char input [120];
+
+  printf("IOLI Crackme Level 0x06\n");
+  printf("Password: ");
+  scanf("%s",input);
+  check(input,envp); // we are passing the arg to check
+  return 0;
+}
+```
+In our check function the only difference is that the environment variable is being passed to parell.
+```c
+void check(char *password,char *env_var){
+  size_t string_len;
+  char char_store;
+  uint index;
+  int accumulator;
+  int char_to_int;
+
+  accumulator = 0;
+  index = 0;
+  while( true ) {
+    string_len = strlen(password);
+    if (string_len <= index) break;
+    char_store = password[index];
+    sscanf(&char_store,"%d",&char_to_int);
+    accumulator = accumulator + char_to_int;
+    if (accumulator == 0x10) {
+      parell(password,env_var); // the major only difference is that the env_var is being passed to parell
+    }
+    index = index + 1;
+  }
+  printf("Password Incorrect!\n");
+  return;
+}
+```
+So lets have a look at the parell
+```c
+void parell(char *password,undefined4 env_var){
+  int dummy_check;
+  int index;
+  uint env_var_pointer;
+
+  sscanf(password,"%d",&env_var_pointer);
+  dummy_check = dummy(env_var_pointer,env_var);
+  if (dummy_check != 0) {
+    for (index = 0; index < 10; index = index + 1) {
+      if ((env_var_pointer & 1) == 0) {
+        printf("Password OK!\n");
+                    /* WARNING: Subroutine does not return */
+        exit(0);
+      }
+    }
+  }
+  return;
+}
+```
+Here we can see that a pointer to our first environment variable is being passed into a new function called dummy and along with the envp array. That returns and if it is not equal to 0 the old check for odd numbers is performed. However this time it simply checks that there is an even number present in the string, rather then that the last number is even. If so it prints a success prompt and exits the program.
+```c
+int dummy(int env_var_pointer,char *envp){
+  int env_var_ptr;
+  int index;
+
+  index = 0;
+  do {
+                    /* check envp not empty */
+    if (*(int *)(envp + index * 4) == 0) {
+      return 0;
+    }
+    env_var_ptr = index * 4;
+    index = index + 1;
+    env_var_ptr = strncmp(*(char **)(envp + env_var_ptr),"LOLO",3);
+  } while (env_var_ptr != 0);
+  return 1;
+}
+```
+Here we can see that the environment variable "LOL" is checked for in the envp array. If it is present then strncmp will return 0 and the do-while loop will exit. We should be able to set an env var of LOL and use any of our previously discovered answers.
+
+#### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(passw: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/crackme0x06', env={"LOL": ""})
+
+    # receive our title
+    print(crack.recvline(timeout=1))
+
+    # send our passwords
+    passw = bytes(f"{passw}", "utf8")
+    # send our passwords
+    crack.sendline(passw)
+
+    # receive our prompt and our praise
+    resp = crack.recvline(timeout=1)
+    print(f"{passw}:{resp}")
+
+
+if __name__ == "__main__":
+    main(54322)
+```
+
+## Crackme0x07
 #### Reversing - High level Description
