@@ -10,7 +10,6 @@ def main(passw: str) -> None:
 
     # send our passwords
     passw = bytes(f"{passw}", "utf8")
-    # send our passwords
     crack.sendline(passw)
 
     # receive our prompt and our praise

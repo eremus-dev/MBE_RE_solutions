@@ -9,7 +9,7 @@ All the reversing for these challenges happens in Ghidra, all the solutions impl
 
 These are pretty standard (albiet really easy) crackmes they implement some functionality that requires some input to get the correct solution. Lets dive in.
 
-## Crackme00a
+## Crackme0x00a
 #### Reversing - High level Description
 Very straight forwards. After navigating to the main function, we can see at 08048501 a prompt for password is printed, "Enter password: ", a string is then read from stdin and stored in the stack and that strcmp on this local string and a string stored in the elf files .data section called pass.1685 that has the value "g00dJ0B!" if the comparison succeeds (returns 0) then the "Congrats!" is printed and the program exits, otherwise the program continues to request the password.
 
@@ -355,7 +355,6 @@ def main(passw: str) -> None:
 
     # send our passwords
     passw = bytes(f"{passw}", "utf8")
-    # send our passwords
     crack.sendline(passw)
 
     # receive our prompt and our praise
@@ -450,7 +449,6 @@ def main(passw: str) -> None:
 
     # send our passwords
     passw = bytes(f"{passw}", "utf8")
-    # send our passwords
     crack.sendline(passw)
 
     # receive our prompt and our praise
@@ -564,7 +562,6 @@ def main(passw: str) -> None:
 
     # send our passwords
     passw = bytes(f"{passw}", "utf8")
-    # send our passwords
     crack.sendline(passw)
 
     # receive our prompt and our praise
@@ -578,3 +575,151 @@ if __name__ == "__main__":
 
 ## Crackme0x07
 #### Reversing - High level Description
+
+Alright our first stripped binary. We know this because we've lost our easy to parse function names and when we check with the command file it is reported as stripped.
+```sh
+$ file ./challenges/crackme0x07
+./challenges/crackme0x07: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.9, stripped
+```
+Thankfully finding the main function is easy. It is always the last arg placed on the stack to the function __libc_start_main. So we go to our entry point, we look for the call to __libc_start_main and we rename the function pushed onto the stack directly above it to main.
+```asm
+                             entry                                           XREF[3]:     Entry Point(*), 08048018(*),
+                                                                                          _elfSectionHeaders::00000214(*)
+        08048400 31 ed           XOR        EBP,EBP
+        08048402 5e              POP        ESI
+        08048403 89 e1           MOV        ECX,ESP
+        08048405 83 e4 f0        AND        ESP,0xfffffff0
+        08048408 50              PUSH       EAX
+        08048409 54              PUSH       ESP=>local_8
+        0804840a 52              PUSH       EDX
+        0804840b 68 50 87        PUSH       FUN_08048750
+                 04 08
+        08048410 68 e0 86        PUSH       FUN_080486e0
+                 04 08
+        08048415 51              PUSH       ECX
+        08048416 56              PUSH       ESI
+        08048417 68 7d 86        PUSH       FUN_0804867d                  <- So this must be main
+                 04 08
+        0804841c e8 67 ff        CALL       <EXTERNAL>::__libc_start_main <- HERE IT IS
+                 ff ff
+        08048421 f4              HLT
+        08048422 90              ??         90h
+        08048423 90              ??         90h
+```
+And sure enough here we are. Crackme0x07, and not much has changed in our main function. All the functions listed have been renamed and as with all the other disassembly has been cleaned up.
+```c
+int main(int argc,char *argv,char *envp){
+  char password_buf [124];
+
+  printf("IOLI Crackme Level 0x07\n");
+  printf("Password: ");
+  scanf("%s",password_buf);
+  check(password_buf,envp);
+  return 0;
+}
+```
+We do our normal variable renaming and also rename our check function, which has grown since we saw it last.
+```c
+void check(char *passwd_buf,char *envp){
+  size_t passwrd_len;
+  int iVar1;
+  char index_char;
+  uint pass_index;
+  char *accumulator;
+  char *char_as_int;
+
+  accumulator = (char *)0x0;
+  pass_index = 0;
+  while( true ) {
+    passwrd_len = strlen(passwd_buf);
+    if (passwrd_len <= pass_index) break;
+    index_char = passwd_buf[pass_index];
+    sscanf(&index_char,"%d",&char_as_int);
+    accumulator = accumulator + (int)char_as_int;
+    if (accumulator == (char *)0x10) {
+      parrel(passwd_buf,envp);
+    }
+    pass_index = pass_index + 1;
+  }
+  failure();
+                    /* how do we get here? */
+  iVar1 = dummy(char_as_int,envp);
+  if (iVar1 != 0) {
+    for (pass_index = 0; (int)pass_index < 10; pass_index = pass_index + 1) {
+      if (((uint)char_as_int & 1) == 0) {
+        printf("wtf?\n");
+                    /* WARNING: Subroutine does not return */
+        exit(0);
+      }
+    }
+  }
+  return;
+  ```
+  Here we can see that the same work occurs in the first half of check. But then after the new call to failure there is a bunch of (unreachable?) code. Lets have a look at the other functions. First we should check parrel.
+  ```c
+  void parrel(char *password_buf,char *envp){
+  int iVar1;
+  int local_c;
+  char *password_ptr;
+
+  sscanf(password_buf,"%d",&password_ptr);
+  iVar1 = dummy(password_ptr,envp);
+  if (iVar1 != 0) {
+    for (local_c = 0; local_c < 10; local_c = local_c + 1) {
+      if (((uint)password_ptr & 1) == 0) {
+        if (_global_dummy_check == 1) {
+          printf("Password OK!\n");
+        }
+                    /* WARNING: Subroutine does not return */
+        exit(0);
+      }
+    }
+  }
+  return;
+}
+```
+We see that we have a new _global variable that is being checked and other then that everything is the same. With dummy we see that the new variable is being set under the same conditions that return 1 (success) from the function
+```c
+int dummy(char *passwd_ptr,char *envp){
+  int index;
+  int env_var_ptr;
+
+  index = 0;
+  do {
+    if (*(int *)(envp + index * 4) == 0) {
+      return 0;
+    }
+    env_var_ptr = index * 4;
+    index = index + 1;
+    env_var_ptr = strncmp(*(char **)(envp + env_var_ptr),"LOLO",3);
+  } while (env_var_ptr != 0);
+  _global_dummy_check = 1;
+  return 1;
+}
+```
+I guess this means that nothing should change, we pass in our password that sums to 0x10 or 16 and we set our LOL env var and we get our Password OK! prompt. But what is with the dead code?
+
+#### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(passw: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/crackme0x07', env={"LOL": ""})
+
+    # receive our title
+    print(crack.recvline(timeout=1))
+
+    # send our passwords
+    passw = bytes(f"{passw}", "utf8")
+    crack.sendline(passw)
+
+    # receive our prompt and our praise
+    resp = crack.recvline(timeout=1)
+    print(f"{passw}:{resp}")
+
+
+if __name__ == "__main__":
+    main(54322)
+```

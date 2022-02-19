@@ -3,7 +3,7 @@ from pwnlib.tubes.process import process
 
 def main(passw: str) -> None:
     # open connection to our challenge binary
-    crack = process('./challenges/crackme0x06', env={"LOL": ""})
+    crack = process('./challenges/crackme0x07', env={"LOL": ""})
 
     # receive our title
     print(crack.recvline(timeout=1))
