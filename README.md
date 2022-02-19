@@ -1,11 +1,11 @@
-# Modern Binary Exploitation Reversing Solutions
+# Modern Binary Exploitation Solutions
 
 ## Intro
-To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges.
+To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges and some of the exploit challenges.
 
 All the reversing for these challenges happens in Ghidra, all the solutions implemented in python with pwnlib to do the actual interesting work for us.
 
-# Lab 1 crackmes
+# IOLI crackmes
 
 These are pretty standard (albiet really easy) crackmes they implement some functionality that requires some input to get the correct solution. Lets dive in.
 
@@ -723,3 +723,45 @@ def main(passw: str) -> None:
 if __name__ == "__main__":
     main(54322)
 ```
+
+## Crackme0x08-9
+#### Reversing - High level Description
+
+Not sure what is going on with the higher level challenges. We can see that our eight challenge is not stripped and when we look through the code we see that literally none of the functionality is changed (and that our assumptions from the stripped binary were correct).
+```sh
+$ file ./challenges/crackme0x08
+./challenges/crackme0x08: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.9, not stripped
+```
+To make matters worse, our solution script from both 6 and 7 work for 8 and 9. I guess we done. 9 is stripped again, but that doesn't really matter. Unless I'm missing something **shrug**
+
+#### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(passw: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/crackme0x08', env={"LOL": ""})
+
+    # receive our title
+    print(crack.recvline(timeout=1))
+
+    # send our passwords
+    passw = bytes(f"{passw}", "utf8")
+    crack.sendline(passw)
+
+    # receive our prompt and our praise
+    resp = crack.recvline(timeout=1)
+    print(f"{passw}:{resp}")
+
+
+if __name__ == "__main__":
+    main(54322)
+```
+For crackme0x09 the same is true, except this time it is stripped.
+
+I guess that is done for these IOLI crackmes.
+
+# The Lab crackmes
+
+## Lab 1
