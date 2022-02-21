@@ -1,6 +1,6 @@
 # Modern Binary Exploitation Solutions
 
-## Intro
+# Intro
 To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges and some of the exploit challenges.
 
 All the reversing for these challenges happens in Ghidra, all the solutions implemented in python with pwnlib to do the actual interesting work for us.
@@ -765,3 +765,424 @@ I guess that is done for these IOLI crackmes.
 # The Lab crackmes
 
 ## Lab 1
+#### Reversing - High level Description
+
+Another easy challenge. Just by opening it in a disassmbler we can see that it is not stripped.
+
+```sh
+$ file ./challenges/lab1
+./challenges/lab1: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.15, BuildID[sha1]=43af309d3735b17cef57f70cb997eebafd17ebf2, not stripped
+```
+
+When we navigate to our main, we see that all our program logic is contained inside main (except for a call to some clin functions).
+
+```c
+int main(void)
+
+{
+  char cVar1;
+  int return_val;
+  uint uVar2;
+  char *pcVar3;
+  int in_GS_OFFSET;
+  byte bVar4;
+  uint index;
+  byte password_buf [20];
+  int stack_cookie;
+
+  bVar4 = 0;
+  stack_cookie = *(int *)(in_GS_OFFSET + 0x14);
+  printf("Enter password: ");
+  __isoc99_scanf("%s",password_buf);
+  index = 0;
+  do {
+    uVar2 = 0xffffffff;
+    pcVar3 = storedpass;
+    do {
+      if (uVar2 == 0) break;
+      uVar2 = uVar2 - 1;
+      cVar1 = *pcVar3;
+      pcVar3 = pcVar3 + (uint)bVar4 * -2 + 1;
+    } while (cVar1 != '\0');
+    if (~uVar2 - 1 <= index) {
+      puts("\nSuccess!! Too easy.");
+      return_val = 0;
+      goto LAB_0804857a;
+    }
+                    /* this equals '5up3r_DuP3r_u_#_1' */
+    if (password_buf[index] != (byte)((byte)index ^ storedpass[index])) {
+      puts("Wrong!");
+      return_val = 1;
+LAB_0804857a:
+      if (stack_cookie != *(int *)(in_GS_OFFSET + 0x14)) {
+                    /* WARNING: Subroutine does not return */
+        __stack_chk_fail();
+      }
+      return return_val;
+    }
+    index = index + 1;
+  } while( true );
+}
+```
+We can see that a password prompt is printed and that a string is accepted. There is a variable called storedpass that is clearly being operated on and compared to our input string. Though this is maybe the first function where our decompiler results are less clear then the disassembly.
+```c
+...
+  do {
+    uVar2 = 0xffffffff;
+    pcVar3 = storedpass;
+    do {
+      if (uVar2 == 0) break;
+      uVar2 = uVar2 - 1;
+      cVar1 = *pcVar3;
+      pcVar3 = pcVar3 + (uint)bVar4 * -2 + 1;
+    } while (cVar1 != '\0');
+    if (~uVar2 - 1 <= index) {
+      puts("\nSuccess!! Too easy.");
+...
+```
+This block here mostly relates to a few lines of assembly that are based around the doosy of an instruction SCASB.REPNE This instruction scans the string while each character is not equal to '\0'. This is often used as an odd way of finding string length.
+```asm
+                             LAB_0804853e                                    XREF[1]:     080484fd(j)
+        0804853e 8b 5c 24 20     MOV        EBX,dword ptr [ESP + index]
+        08048542 b8 20 a0        MOV        EAX,storedpass       = "5tr0vZBrX:xTyR-P!"
+                 04 08
+        08048547 c7 44 24        MOV        dword ptr [ESP + local_34],0xffffffff
+                 1c ff ff
+                 ff ff
+        0804854f 89 c2           MOV        EDX,EAX
+        08048551 b8 00 00        MOV        EAX,0x0
+                 00 00
+        08048556 8b 4c 24 1c     MOV        ECX,dword ptr [ESP + local_34]
+        0804855a 89 d7           MOV        EDI,EDX
+        0804855c f2 ae           SCASB.RE   ES:EDI=>storedpass     = "5tr0vZBrX:xTyR-P!"
+        0804855e 89 c8           MOV        EAX,ECX
+        08048560 f7 d0           NOT        EAX
+        08048562 83 e8 01        SUB        EAX,0x1
+        08048565 39 c3           CMP        EBX,EAX
+        08048567 72 96           JC         LAB_080484ff
+```
+If this check fails we jump to a block that performs a byte by byte xor operation and comparison of our storedpass with our entered pass, and if this fails we print a failure message "Wrong" and exit the program.
+
+First things first. Lets compute the correct password. We can see that the password is being xor'd with the index into the password at which the charracter sits.
+
+```asm
+                             LAB_080484ff                                    XREF[1]:     08048567(j)
+        080484ff 8b 44 24 20     MOV        EAX,dword ptr [ESP + index]
+                             this equals '5up3r_DuP3r_u_#_1'
+        08048503 05 20 a0        ADD        EAX,storedpass                                   = "5tr0vZBrX:xTyR-P!"
+                 04 08
+        08048508 0f b6 10        MOVZX      EDX=>storedpass,byte ptr [EAX]                   = "5tr0vZBrX:xTyR-P!"
+        0804850b 8b 44 24 20     MOV        EAX,dword ptr [ESP + index]
+        0804850f 31 d0           XOR        EAX,EDX
+        08048511 88 44 24 27     MOV        byte ptr [ESP + local_29],AL
+        08048515 8d 44 24 28     LEA        EAX=>password_buf,[ESP + 0x28]
+        08048519 03 44 24 20     ADD        EAX,dword ptr [ESP + index]
+        0804851d 0f b6 00        MOVZX      EAX,byte ptr [EAX]
+        08048520 3a 44 24 27     CMP        AL,byte ptr [ESP + local_29]
+        08048524 74 13           JZ         LAB_08048539
+        08048526 c7 04 24        MOV        dword ptr [ESP]=>local_50,s_Wrong!_08048684      = "Wrong!"
+                 84 86 04 08
+```
+We can derive this with some simple python.
+
+```python
+    stored_password = "5tr0vZBrX:xTyR-P!"
+    decoded_password = []
+    for i in range(0, len(stored_password)):
+        decoded_password.append(chr(ord(stored_password[i]) ^ i))
+    decoded_password = ''.join(decoded_password)
+    # 5up3r_DuP3r_u_#_1
+```
+When we enter this into our program we are greeted with a success message. We can trivially implement this in a solution script.
+
+#### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(password: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/lab1')
+
+    # receive empty lines
+    crack.recvline(timeout=1)
+    crack.recvline(timeout=1)
+
+    # send our password
+    password = bytes(f"{password}", "utf8")
+    crack.sendline(password)
+
+    # receive our prompt and our praise or handle exit with wrong answer
+    resp = crack.recvline(timeout=1)
+    if resp != b'Enter password: Wrong!\n':
+        print(resp)
+        print(crack.recvline(timeout=1))
+    else:
+        print(resp)
+
+
+if __name__ == "__main__":
+
+    # transform the password we found in the binary
+    # with the operation we found in the binary
+    stored_password = "5tr0vZBrX:xTyR-P!"
+    decoded_password = []
+    for i in range(0, len(stored_password)):
+        decoded_password.append(chr(ord(stored_password[i]) ^ i))
+    decoded_password = ''.join(decoded_password)
+
+    main(decoded_password)
+```
+## Lab 2
+#### Reversing - High level Description
+
+We have us a stripped binary. Maybe things are getting more interesting.
+
+```sh
+$ file ./challenges/lab2
+./challenges/lab2: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.15, BuildID[sha1]=b3278fe6368cde1f51b1a491b06b16b162c2adc3, stripped
+```
+
+We are going to do our classic first arg to __libc_start_main trick to find our main function. We find this call within our entry function.
+
+```asm
+                             undefined entry()
+             undefined         AL:1           <RETURN>
+             undefined4        Stack[-0x8]:4  local_8                                 XREF[1]:     08048439(*)
+                             entry                                           XREF[3]:     Entry Point(*), 08048018(*),
+                                                                                          _elfSectionHeaders::00000214(*)
+        08048430 31 ed           XOR        EBP,EBP
+        08048432 5e              POP        ESI
+        08048433 89 e1           MOV        ECX,ESP
+        08048435 83 e4 f0        AND        ESP,0xfffffff0
+        08048438 50              PUSH       EAX
+        08048439 54              PUSH       ESP=>local_8
+        0804843a 52              PUSH       EDX
+        0804843b 68 90 86        PUSH       FUN_08048690
+                 04 08
+        08048440 68 20 86        PUSH       FUN_08048620
+                 04 08
+        08048445 51              PUSH       ECX
+        08048446 56              PUSH       ESI
+        08048447 68 e9 84        PUSH       FUN_080484e9  <- this be main
+                 04 08
+        0804844c e8 bf ff        CALL       <EXTERNAL>::__libc_start_main                    undefined __libc_start_main()
+                 ff ff
+```
+
+One look at our main function and we see some anti-static analysis measures that I initially mistook for anti-debugging measures.
+
+Thankfully the function raises a lot of questions that are answered by the main function.
+
+```c
+int main(void){
+  code *pcVar1;
+  int ret_val;
+
+  signal(5,FUN_080484e4); <- what is this?
+  printf("Enter password: "); <- This is a dummy call?
+  pcVar1 = (code *)swi(3); <- This is a software interrupt, the same used by debuggers, and will pause our program?
+  ret_val = (*pcVar1)(); <- We are calling the signal?
+  return ret_val; <- will never be called?
+}
+```
+
+Since I've already solved this, I can saftely say these questions are a good start but also wrong. So lets answer these initial quesitons, and get to the truth.
+
+### Signal handling?
+
+Signal registers a handler for a given signal. when we look at the docs we see:
+
+```c
+       signal - ANSI C signal handling
+
+SYNOPSIS
+       #include <signal.h>
+
+       typedef void (*sighandler_t)(int);
+
+       sighandler_t signal(int signum, sighandler_t handler);
+```
+
+So for signal 5 we are registering the function FUN_080484e4 (which we will rename to sighandler_nop for obvious reasons). What is signal 5? We can get this from the kill command.
+```sh
+$ kill -l
+ 1) SIGHUP       2) SIGINT       3) SIGQUIT      4) SIGILL       5) SIGTRAP
+ 6) SIGABRT      7) SIGBUS       8) SIGFPE       9) SIGKILL     10) SIGUSR1
+11) SIGSEGV     12) SIGUSR2     13) SIGPIPE     14) SIGALRM     15) SIGTERM
+16) SIGSTKFLT   17) SIGCHLD     18) SIGCONT     19) SIGSTOP     20) SIGTSTP
+21) SIGTTIN     22) SIGTTOU     23) SIGURG      24) SIGXCPU     25) SIGXFSZ
+26) SIGVTALRM   27) SIGPROF     28) SIGWINCH    29) SIGIO       30) SIGPWR
+31) SIGSYS      34) SIGRTMIN    35) SIGRTMIN+1  36) SIGRTMIN+2  37) SIGRTMIN+3
+38) SIGRTMIN+4  39) SIGRTMIN+5  40) SIGRTMIN+6  41) SIGRTMIN+7  42) SIGRTMIN+8
+43) SIGRTMIN+9  44) SIGRTMIN+10 45) SIGRTMIN+11 46) SIGRTMIN+12 47) SIGRTMIN+13
+48) SIGRTMIN+14 49) SIGRTMIN+15 50) SIGRTMAX-14 51) SIGRTMAX-13 52) SIGRTMAX-12
+53) SIGRTMAX-11 54) SIGRTMAX-10 55) SIGRTMAX-9  56) SIGRTMAX-8  57) SIGRTMAX-7
+58) SIGRTMAX-6  59) SIGRTMAX-5  60) SIGRTMAX-4  61) SIGRTMAX-3  62) SIGRTMAX-2
+63) SIGRTMAX-1  64) SIGRTMAX
+```
+Okay so we are registering FUN_080484e4 as a signal handler for the SIGTRAP signal call.
+```c
+void FUN_080484e4(void){
+  return;
+}
+```
+
+So what is SIGTRAP?
+
+```sh
+$ man 7 signal
+...
+ SIGTRAP      P2001      Core    Trace/breakpoint trap
+...
+```
+Ah, a signal that is called by debuggers. At this point I realize that INT3 is not an anti-debugging measure. Which is roughly when I realised there is a heap of instructions below the INT3 instruction, and I remembered INT3 is an anti-static analysis measure used to halt disassembly and that all we need to do is instruct our debugger to diassemble all the data. When our signal handler is called it will immediately return and RIP will execute the next instruction. In otherwords besides the INT3 signal main will behave as a normal function.
+
+So after much ado, here is our challenge function.
+
+```asm
+                             **************************************************************
+                             *                                                            *
+                             *  FUNCTION                                                  *
+                             **************************************************************
+                             int main(void)
+             int               EAX:4          <RETURN>                                XREF[1]:     08048532(W)
+             undefined4        EAX:4          ret_val                                 XREF[1]:     08048532(W)
+             undefined4        Stack[-0x14]:4 local_14                                XREF[1]:     080484fa(W)
+             undefined4        Stack[-0x2c]:4 local_2c                                XREF[1]:     0804851d(W)
+             undefined4        Stack[-0x48]:4 local_48                                XREF[1]:     08048509(W)
+             undefined4        Stack[-0x4c]:4 local_4c                                XREF[2]:     08048511(*),
+                                                                                                   0804852a(*)
+                             main                                            XREF[3]:     entry:08048447(*), 0804873c,
+                                                                                          080487c0(*)
+        080484e9 55              PUSH       EBP
+        080484ea 89 e5           MOV        EBP,ESP
+        080484ec 57              PUSH       EDI
+        080484ed 53              PUSH       EBX
+        080484ee 83 e4 f0        AND        ESP,0xfffffff0
+        080484f1 83 ec 40        SUB        ESP,0x40
+        080484f4 65 a1 14        MOV        EAX,GS:[0x14]
+                 00 00 00
+        080484fa 89 44 24 3c     MOV        dword ptr [ESP + local_14],EAX
+        080484fe 31 c0           XOR        EAX,EAX
+        08048500 50              PUSH       EAX
+        08048501 31 c0           XOR        EAX,EAX
+        08048503 74 03           JZ         LAB_08048508
+        08048505 83 c4 04        ADD        ESP,0x4
+                             LAB_08048508                                    XREF[1]:     08048503(j)
+        08048508 58              POP        EAX
+        08048509 c7 44 24        MOV        dword ptr [ESP + local_48],sighandler_nop
+                 04 e4 84
+                 04 08
+        08048511 c7 04 24        MOV        dword ptr [ESP]=>local_4c,0x5
+                 05 00 00 00
+        08048518 e8 b3 fe        CALL       <EXTERNAL>::signal                               __sighandler_t signal(int __sig,
+                 ff ff
+        0804851d c7 44 24        MOV        dword ptr [ESP + local_2c],0x0
+                 20 00 00
+                 00 00
+        08048525 b8 f0 86        MOV        EAX,s_Enter_password:_080486f0                   = "Enter password: "
+                 04 08
+        0804852a 89 04 24        MOV        dword ptr [ESP]=>local_4c,EAX=>s_Enter_passwor   = "Enter password: "
+        0804852d e8 8e fe        CALL       <EXTERNAL>::printf                               int printf(char * __format, ...)
+                 ff ff
+        08048532 cc              INT3
+        08048533 b8 01 87        MOV        EAX,DAT_08048701                                 = 25h    %
+                 04 08
+        08048538 8d 54 24 28     LEA        EDX,[ESP + 0x28]
+        0804853c 89 54 24 04     MOV        dword ptr [ESP + 0x4],EDX
+        08048540 89 04 24        MOV        dword ptr [ESP],EAX=>DAT_08048701                = 25h    %
+        08048543 e8 d8 fe        CALL       <EXTERNAL>::__isoc99_scanf                       undefined __isoc99_scanf()
+                 ff ff
+        08048548 c7 44 24        MOV        dword ptr [ESP + 0x20],0x0
+                 20 00 00
+                 00 00
+        08048550 eb 66           JMP        LAB_080485b8
+                             LAB_08048552                                    XREF[1]:     080485e1(j)
+        08048552 cc              INT3
+        08048553 8b 44 24 20     MOV        EAX,dword ptr [ESP + 0x20]
+        08048557 05 24 a0        ADD        EAX,s_kw6PZq3Zd;ekR[_1_0804a024                  = "kw6PZq3Zd;ekR[_1"
+                 04 08
+        0804855c 0f b6 18        MOVZX      EBX,byte ptr [EAX]=>s_kw6PZq3Zd;ekR[_1_0804a024  = "kw6PZq3Zd;ekR[_1"
+        0804855f 8b 44 24 20     MOV        EAX,dword ptr [ESP + 0x20]
+        08048563 8d 48 01        LEA        ECX,[EAX + 0x1]
+        08048566 ba 67 66        MOV        EDX,0x66666667
+                 66 66
+        0804856b 89 c8           MOV        EAX,ECX
+        0804856d f7 ea           IMUL       EDX
+        0804856f c1 fa 03        SAR        EDX,0x3
+        08048572 89 c8           MOV        EAX,ECX
+        08048574 c1 f8 1f        SAR        EAX,0x1f
+        08048577 29 c2           SUB        EDX,EAX
+        08048579 89 d0           MOV        EAX,EDX
+        0804857b c1 e0 02        SHL        EAX,0x2
+        0804857e 01 d0           ADD        EAX,EDX
+        08048580 c1 e0 02        SHL        EAX,0x2
+        08048583 89 ca           MOV        EDX,ECX
+        08048585 29 c2           SUB        EDX,EAX
+        08048587 89 d0           MOV        EAX,EDX
+        08048589 31 d8           XOR        EAX,EBX
+        0804858b 88 44 24 27     MOV        byte ptr [ESP + 0x27],AL
+        0804858f 8d 44 24 28     LEA        EAX,[ESP + 0x28]
+        08048593 03 44 24 20     ADD        EAX,dword ptr [ESP + 0x20]
+        08048597 0f b6 00        MOVZX      EAX,byte ptr [EAX]
+        0804859a 3a 44 24 27     CMP        AL,byte ptr [ESP + 0x27]
+        0804859e 74 13           JZ         LAB_080485b3
+        080485a0 c7 04 24        MOV        dword ptr [ESP],s_Wrong!_08048704                = "Wrong!"
+                 04 87 04 08
+        080485a7 e8 44 fe        CALL       <EXTERNAL>::puts                                 int puts(char * __s)
+                 ff ff
+        080485ac b8 01 00        MOV        EAX,0x1
+                 00 00
+        080485b1 eb 46           JMP        LAB_080485f9
+                             LAB_080485b3                                    XREF[1]:     0804859e(j)
+        080485b3 83 44 24        ADD        dword ptr [ESP + 0x20],0x1
+                 20 01
+                             LAB_080485b8                                    XREF[1]:     08048550(j)
+        080485b8 8b 5c 24 20     MOV        EBX,dword ptr [ESP + 0x20]
+        080485bc b8 24 a0        MOV        EAX,s_kw6PZq3Zd;ekR[_1_0804a024                  = "kw6PZq3Zd;ekR[_1"
+                 04 08
+        080485c1 c7 44 24        MOV        dword ptr [ESP + 0x1c],0xffffffff
+                 1c ff ff
+                 ff ff
+        080485c9 89 c2           MOV        EDX,EAX
+        080485cb b8 00 00        MOV        EAX,0x0
+                 00 00
+        080485d0 8b 4c 24 1c     MOV        ECX,dword ptr [ESP + 0x1c]
+        080485d4 89 d7           MOV        EDI,EDX
+        080485d6 f2 ae           SCASB.RE   ES:EDI=>s_kw6PZq3Zd;ekR[_1_0804a024              = "kw6PZq3Zd;ekR[_1"
+        080485d8 89 c8           MOV        EAX,ECX
+        080485da f7 d0           NOT        EAX
+        080485dc 83 e8 01        SUB        EAX,0x1
+        080485df 39 c3           CMP        EBX,EAX
+        080485e1 0f 82 6b        JC         LAB_08048552
+                 ff ff ff
+        080485e7 cc              INT3
+        080485e8 c7 04 24        MOV        dword ptr [ESP],s__Success!!_Too_easy._0804870b  = "\nSuccess!! Too easy."
+                 0b 87 04 08
+        080485ef e8 fc fd        CALL       <EXTERNAL>::puts                                 int puts(char * __s)
+                 ff ff
+        080485f4 b8 00 00        MOV        EAX,0x0
+                 00 00
+                             LAB_080485f9                                    XREF[1]:     080485b1(j)
+        080485f9 8b 54 24 3c     MOV        EDX,dword ptr [ESP + 0x3c]
+        080485fd 65 33 15        XOR        EDX,dword ptr GS:[0x14]
+                 14 00 00 00
+        08048604 74 05           JZ         LAB_0804860b
+        08048606 e8 d5 fd        CALL       <EXTERNAL>::__stack_chk_fail                     undefined __stack_chk_fail()
+                 ff ff
+                             -- Flow Override: CALL_RETURN (CALL_TERMINATOR)
+                             LAB_0804860b                                    XREF[1]:     08048604(j)
+        0804860b 8d 65 f8        LEA        ESP,[EBP + -0x8]
+        0804860e 5b              POP        EBX
+        0804860f 5f              POP        EDI
+        08048610 5d              POP        EBP
+```
+
+So the decomplition for this is poor (understandably). I think if I was to patch the binary to replace INT3 with a NOP instead it would massively improve the decompilation. But I am also aware of being to reliant on the decompiler. So I am instead going to translate the assembly into C (as best I can understand it).
+
+```c
+
+```
+
+#### Solution Script
