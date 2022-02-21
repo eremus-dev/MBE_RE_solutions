@@ -1179,10 +1179,107 @@ So after much ado, here is our challenge function.
         08048610 5d              POP        EBP
 ```
 
-So the decomplition for this is poor (understandably). I think if I was to patch the binary to replace INT3 with a NOP instead it would massively improve the decompilation. But I am also aware of being to reliant on the decompiler. So I am instead going to translate the assembly into C (as best I can understand it).
+So the decomplition for this is poor (understandably). I think if I was to patch the binary to replace INT3 with a NOP instead it would massively improve the decompilation.  So after changing the assembly and instructing Ghidra to reconstitute the function we get.
 
 ```c
+int main(void){
+  char cVar1;
+  int iVar2;
+  uint uVar3;
+  char *pcVar4;
+  int in_GS_OFFSET;
+  byte bVar5;
+  uint uStack48;
+  byte abStack40 [20];
+  int local_14;
 
+  bVar5 = 0;
+  local_14 = *(int *)(in_GS_OFFSET + 0x14);
+  signal(5,sighandler_nop);
+  printf("Enter password: ");
+  __isoc99_scanf();
+  uStack48 = 0;
+  do {
+    uVar3 = 0xffffffff;
+    pcVar4 = s_kw6PZq3Zd;ekR[_1_0804a024;
+    do {
+      if (uVar3 == 0) break;
+      uVar3 = uVar3 - 1;
+      cVar1 = *pcVar4;
+      pcVar4 = pcVar4 + (uint)bVar5 * -2 + 1;
+    } while (cVar1 != '\0');
+    if (~uVar3 - 1 <= uStack48) {
+      puts("\nSuccess!! Too easy.");
+      iVar2 = 0;
+      goto LAB_080485f9;
+    }
+    if (abStack40[uStack48] !=
+        (byte)((char)(uStack48 + 1) + (char)((int)(uStack48 + 1) / 0x14) * -0x14 ^
+              s_kw6PZq3Zd;ekR[_1_0804a024[uStack48])) {
+      puts("Wrong!");
+      iVar2 = 1;
+LAB_080485f9:
+      if (local_14 == *(int *)(in_GS_OFFSET + 0x14)) {
+        return iVar2;
+      }
+                    /* WARNING: Subroutine does not return */
+      __stack_chk_fail();
+    }
+    uStack48 = uStack48 + 1;
+  } while( true );
+}
 ```
+When we have a look we can see that the there is a heap of confusing operations that is likely just the decompiler getting a little overwhelmed. At the heart of it this is almost identical to lab1. The only difference is that intead of the comparison being
+```python
+password[index] ^ index
+```
+We have an operation that is
+```python
+# password[index] ^ (index + 1)
+x = "kw6PZq3Zd;ekR[_1"
+store = []
+for i in range(0, len(x)):
+     store.append(chr(ord(x[i]) ^ (i + 1)))
+print("".join(store))
+# ju5T_w4Rm1ng_UP!
+```
+One thing is certain the anti-static disassembly did a doozy on both the disassembler though the resulting decompilation isn't too bad.
 
 #### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(password: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/lab2')
+
+    # receive empty lines
+    crack.recvline(timeout=1)
+    crack.recvline(timeout=1)
+
+    # send our password
+    password = bytes(f"{password}", "utf8")
+    crack.sendline(password)
+
+    # receive our prompt and our praise or handle exit with wrong answer
+    resp = crack.recvline(timeout=1)
+    if resp != b'Enter password: Wrong!\n':
+        print(resp)
+        print(crack.recvline(timeout=1))
+    else:
+        print(resp)
+
+
+if __name__ == "__main__":
+
+    # transform the password we found in the binary
+    # with the operation we found in the binary
+    x = "kw6PZq3Zd;ekR[_1"
+    store = []
+    for i in range(0, len(x)):
+        store.append(chr(ord(x[i]) ^ (i + 1)))
+    decoded_password = "".join(store)
+
+    main(decoded_password)
+```
