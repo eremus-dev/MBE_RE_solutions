@@ -1568,3 +1568,33 @@ if __name__ == "__main__":
 
     main(name, serial)
 ```
+
+# CMU Bomb
+
+So this is a larger crackme, that gamifies RE by structuring it as a bomb diffusing challenge.
+
+```sh
+$ file challenges/cmubomb
+challenges/cmubomb: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.0.0, with debug_info, not stripped
+```
+
+We can see that it is dynamically linked and not stripped. When we disassemble
+
+## Working:
+
+```py
+coll = [1]
+    ...: for i in range(1, 6):
+    ...:     coll.append((i + 1) * coll[i - 1])
+    ...: print(coll)
+[1, 2, 6, 24, 120, 720]
+```
+
+phase 5:
+```py
+x = 'isrveawhobpnutfg'
+for index, letter in enumerate("giants"):
+    for i in range(0x61, 0x7A):
+        if x[(i) & 0xF] == letter:
+            print(f"{index}: {chr(i)} -> {letter}")
+```
