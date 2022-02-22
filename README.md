@@ -1283,3 +1283,288 @@ if __name__ == "__main__":
 
     main(decoded_password)
 ```
+
+## Lab 3
+#### Reversing - High level Description
+
+Okay, another stripped challenge.
+```sh
+$ file ./challenges/lab3
+./challenges/lab3: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.15, BuildID[sha1]=bec53100fab355c947ad9d9a8aa8cb27cbdb4ee9, stripped
+```
+Loading it into the disassembler we see that this is something new. We use our old __libc_start main trick to find main, rename it, and open it.
+```c
+int main(void){
+  if (DAT_0804a034 == DAT_0804a038) {
+    printf("%sSuccess!\n\n%s");
+  }
+  else {
+    printf("%sNope!\n\n%s");
+  }
+  return 0;
+}
+```
+Doesn't seem right. the compared values aren't initialised, and main is accepting no arguments. The reality is that a lot happens before main, we need to check what other functions are being called before main.
+
+Sure enough we can see there are two functions that are being called, via pretty round about means, _INIT_0 and _INIT_1. Both of these perform different functions. _INIT_0 implements our first anti-debugging functionality. There are a couple of ways to subvert this, but the easiest way is to simple not use static analysis like we've been doing.
+```asm
+
+                             _INIT_0
+        08048687 55              PUSH       EBP
+        08048688 89 e5           MOV        EBP,ESP
+        0804868a 83 ec 18        SUB        ESP,0x18
+        0804868d 50              PUSH       EAX
+        0804868e 31 c0           XOR        EAX,EAX
+        08048690 74 03           JZ         LAB_08048695
+        08048692 83 c4 04        ADD        ESP,0x4
+                             LAB_08048695                                    XREF[1]:     08048690(j)
+        08048695 58              POP        EAX
+        08048696 c7 44 24        MOV        dword ptr [ESP + local_c],0x0
+                 0c 00 00
+                 00 00
+        0804869e c7 44 24        MOV        dword ptr [ESP + local_10],0x0
+                 08 00 00
+                 00 00
+        080486a6 c7 44 24        MOV        dword ptr [ESP + local_14],0x0
+                 04 00 00
+                 00 00
+        080486ae c7 04 24        MOV        dword ptr [ESP]=>local_18,0x0
+                 00 00 00 00
+        080486b5 e8 c6 fd        CALL       <EXTERNAL>::ptrace                 <- WARNING BELLS
+                 ff ff
+        080486ba 83 f8 ff        CMP        EAX,-0x1
+        080486bd 0f 85 a4        JNZ        LAB_08048867
+                 01 00 00
+
+```
+Any call to ptrace in a binary is a bit weird. Looking at the manual we can see here from the return type that if Ptrace cannot establish a trace on itself it will execute the rest of the function.
+```sh
+man ptrace
+
+RETURN VALUE
+       On success, the PTRACE_PEEK* requests return the requested data (but see NOTES),  the  PTRACE_SECCOMP_GET_FILTER  request
+       returns the number of instructions in the BPF program, and other requests return zero.
+
+       On  error, all requests return -1, and errno is set appropriately.  Since the value returned by a successful PTRACE_PEEK*
+       request may be -1, the caller must clear errno before the call, and then check it afterward to determine whether  or  not
+       an error occurred.
+```
+The function itself is great. It just prints **DEBUGGING IS A CRUTCH** and calls exit(0xdead). Quality.
+```c
+void _INIT_0(void){
+  long lVar1;
+
+  lVar1 = ptrace(PTRACE_TRACEME);
+  if (lVar1 != -1) {
+    return;
+  }
+  printf("%s######\n");
+  puts("#     #  ######  #####   #    #   ####    ####      #    #    #   ####");
+  puts("#     #  #       #    #  #    #  #    #  #    #     #    ##   #  #    #");
+  puts("#     #  #####   #####   #    #  #       #          #    # #  #  #");
+  puts("#     #  #       #    #  #    #  #  ###  #  ###     #    #  # #  #  ###");
+  puts("#     #  #       #    #  #    #  #    #  #    #     #    #   ##  #    #");
+  puts("######   ######  #####    ####    ####    ####      #    #    #   ####");
+  putchar(10);
+  putchar(10);
+  printf("%s    #     ####\n");
+  puts("    #    #");
+  puts("    #     ####");
+  puts("    #         #");
+  puts("    #    #    #");
+  puts("    #     ####");
+  putchar(10);
+  putchar(10);
+  puts("   ##");
+  puts("  #  #");
+  puts(" #    #");
+  puts(" ######");
+  puts(" #    #");
+  puts(" #    #");
+  putchar(10);
+  putchar(10);
+  printf("%s  ####   #####   #    #   #####   ####   #    #\n");
+  puts(" #    #  #    #  #    #     #    #    #  #    #");
+  puts(" #       #    #  #    #     #    #       ######");
+  puts(" #       #####   #    #     #    #       #    #   ###");
+  puts(" #    #  #   #   #    #     #    #    #  #    #   ###");
+  printf("  ####   #    #   ####      #     ####   #    #   ###%s\n");
+                    /* WARNING: Subroutine does not return */
+  exit(0xdead);
+}
+```
+Lets talk through the ways to avoid this if we did want to debug our binary. If we remember at the start of this when we called file on our challenge we were told that our binary was dynamically linked. This means that at the first call to any libc function the system linker has to resolve the address of the function. Ptrace is one of those functions. This happens with some linker foo, known as lazy linking, but the long and the short of it is that all functions all call into part of our elf called .plt or the program linkage table. Here there is a function stub.
+```asm
+                             **************************************************************
+                             *                                                            *
+                             *  THUNK FUNCTION                                            *
+                             **************************************************************
+                             thunk long ptrace(__ptrace_request __request, ...)
+                               Thunked-Function: <EXTERNAL>::ptrace
+                               assume EBX = 0x8049ff4
+             long              EAX:4          <RETURN>
+             __ptrace_reque    Stack[0x4]:4   __request
+                             <EXTERNAL>::ptrace                              XREF[1]:     _INIT_0:080486b5(c)
+        08048480 ff 25 20        JMP        dword ptr [-><EXTERNAL>::ptrace]                      long ptrace(__ptrace_request __r
+                 a0 04 08
+                             -- Flow Override: CALL_RETURN (COMPUTED_CALL_TERMINATOR)
+        08048486 68 40 00        PUSH       0x40
+                 00 00
+        0804848b e9 60 ff        JMP        FUN_080483f0                                          undefined FUN_080483f0()
+                 ff ff
+                             -- Flow Override: CALL_RETURN (CALL_TERMINATOR)
+```
+This function then consults the .got.plt section or the global offset table program linkage table by jumping into it with the JMP instruction at 08048480. This first call will simply find no address linked to our .got.plt section so will push ptraces offset into the global offset table onto the stack are call the linker to resolve this address for us.
+```asm
+                             //
+                             // .got.plt
+                             // SHT_PROGBITS  [0x8049ff4 - 0x804a023]
+                             // ram:08049ff4-ram:0804a023
+                             //
+                             __DT_PLTGOT                                     XREF[2]:     08049f74(*),
+                                                                                          _elfSectionHeaders::000003cc(*)
+        08049ff4 18 9f 04 08     addr       _DYNAMIC
+                             PTR_08049ff8                                    XREF[1]:     FUN_080483f0:080483f0(R)
+        08049ff8 00 00 00 00     addr       00000000
+                             PTR_08049ffc                                    XREF[1]:     FUN_080483f0:080483f6
+        08049ffc 00 00 00 00     addr       00000000
+                             PTR_printf_0804a000                             XREF[1]:     printf:08048400
+        0804a000 00 b0 04 08     addr       <EXTERNAL>::printf                                    = ??
+                             PTR___stack_chk_fail_0804a004                   XREF[1]:     __stack_chk_fail:08048410
+        0804a004 04 b0 04 08     addr       <EXTERNAL>::__stack_chk_fail                          = ??
+                             PTR_puts_0804a008                               XREF[1]:     puts:08048420
+        0804a008 08 b0 04 08     addr       <EXTERNAL>::puts                                      = ??
+                             PTR___gmon_start___0804a00c                     XREF[1]:     __gmon_start__:08048430
+        0804a00c 0c b0 04 08     addr       __gmon_start__                                        = ??
+                             PTR_exit_0804a010                               XREF[1]:     exit:08048440
+        0804a010 10 b0 04 08     addr       <EXTERNAL>::exit                                      = ??
+                             PTR___libc_start_main_0804a014                  XREF[1]:     __libc_start_main:08048450
+        0804a014 14 b0 04 08     addr       <EXTERNAL>::__libc_start_main                         = ??
+                             PTR_putchar_0804a018                            XREF[1]:     putchar:08048460
+        0804a018 18 b0 04 08     addr       <EXTERNAL>::putchar                                   = ??
+                             PTR___isoc99_scanf_0804a01c                     XREF[1]:     __isoc99_scanf:08048470
+        0804a01c 1c b0 04 08     addr       <EXTERNAL>::__isoc99_scanf                            = ??
+                             PTR_ptrace_0804a020                             XREF[1]:     ptrace:08048480
+        0804a020 20 b0 04 08     addr       <EXTERNAL>::ptrace                                    = ??
+```
+On all subsequent calls to our function the address will be called. So we can jump the gun and patch the table for the ptrace call, to simply immediately return. This will allow us to debug our binary. Or we can nop out the call to ptrace to begin with. Or whatever, doesn't bother us, we aren't going to use a debugger anyway.
+
+Why would we want to you might ask? Because if we set a breakpoint on main, we can simply print the two variables and we have our answer. But too easy.
+
+On to _INIT_1. Turns out this is where almost all the logic happens. At a high level _INIT_1 asks for a last name, makes sure that the name is at least 5 characters lon, then a serial number, which it reads in as an int, then it calculates the serial number for the name. Then it returns.
+
+At which poing the main functions checking of two seemingly global values makes sense. Is our serial number equal to the serial number that is generated from our entered last name. Gotta say, Ghidra translate SCASB.REPNE into the weirdiest C.
+```c
+{
+  char cVar1;
+  uint size_check;
+  char *pcVar2;
+  int in_GS_OFFSET;
+  byte bVar3;
+  uint index;
+  char local_34 [20];
+  int local_20;
+
+  bVar3 = 0;
+  local_20 = *(int *)(in_GS_OFFSET + 0x14);
+  do {
+                    /* a size chcek for our string using SCASB.REPNE */
+    size_check = 0xffffffff;
+    pcVar2 = local_34;
+    do {
+      if (size_check == 0) break;
+      size_check = size_check - 1;
+      cVar1 = *pcVar2;
+      pcVar2 = pcVar2 + (uint)bVar3 * -2 + 1;
+    } while (cVar1 != '\0');
+    if (4 < ~size_check - 1) {
+      printf("Serial:");
+                    /* this is an int that is being stored at DAT_0804a034 */
+      __isoc99_scanf();
+      index = 0;
+      do {
+                    /* Yet another size check using SCASB.REPNE */
+        size_check = 0xffffffff;
+        pcVar2 = local_34;
+        do {
+          if (size_check == 0) break;
+          size_check = size_check - 1;
+          cVar1 = *pcVar2;
+          pcVar2 = pcVar2 + (uint)bVar3 * -2 + 1;
+        } while (cVar1 != '\0');
+        if (~size_check - 1 <= index) {
+          if (local_20 == *(int *)(in_GS_OFFSET + 0x14)) {
+            return;
+          }
+                    /* WARNING: Subroutine does not return */
+          __stack_chk_fail();
+        }
+                    /* Yep another SCASB.REPNE size check
+                        */
+        size_check = 0xffffffff;
+        pcVar2 = local_34;
+        do {
+          if (size_check == 0) break;
+          size_check = size_check - 1;
+          cVar1 = *pcVar2;
+          pcVar2 = pcVar2 + (uint)bVar3 * -2 + 1;
+        } while (cVar1 != '\0');
+                    /* Our actual serial number generation operation */
+        DAT_0804a038 = (int)local_34[(index - 1) % (~size_check - 1)] ^
+                       (int)local_34[index] + DAT_0804a038;
+        index = index + 1;
+      } while( true );
+    }
+    printf("Enter last name (5 or more letters):");
+    __isoc99_scanf();
+  } while( true );
+}
+```
+I'm leaning on comments here, rather then doing the work to clean the decompilation.
+
+Lets implement this in python and generate our serial number.
+```c
+size_check = 0xffffffff
+DAT_0804a038 = (int)local_34[(index - 1) % (~size_check - 1)] ^ (int)local_34[index] + DAT_0804a038;
+```
+We can see that we are going to iterate through our name, add the charcter at index with our accumulator then xor it with a character from our string at a index that can be derived from
+(0xffffffff % size_check) if index == 0 or (index - 1) % size_check
+
+### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main(name: str, serial: int) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/lab3')
+
+    # send our password
+    name = bytes(f"{name}", "utf8")
+    crack.sendline(name)
+
+    # prompt for serial
+    serial = bytes(f"{serial}", "utf8")
+    crack.sendline(serial)
+
+    # receive answer
+    print(str(crack.recvline(timeout=1), "utf-8"))
+
+
+def serial_gen(name: str) -> int:
+    acc = 0
+    name = list(name)
+    name_len = len(name)
+    for index, char in enumerate(name):
+        index = 0xffffffff if index == 0 else index-1
+        acc = ord(name[index % (name_len)]) ^ ord(char) + acc
+    return acc
+
+
+if __name__ == "__main__":
+    # get our name generate our serial number
+    name = input("Enter name: ").strip('\n')
+    serial = serial_gen(name)
+
+    main(name, serial)
+```
