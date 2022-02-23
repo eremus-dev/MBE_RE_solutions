@@ -1788,7 +1788,7 @@ void phase_3(char *param_1){
   return;
 }
 ```
-We can pick any case but I pick the first one case 0. So our three arguments are "0 q 777". Our solution script gainst the line.
+We can pick any case but I pick the first one case 0. So our three arguments are "0 q 777". Our solution script gains the line.
 
 ```py
 def main() -> None:
