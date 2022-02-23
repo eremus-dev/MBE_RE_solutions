@@ -1,4 +1,15 @@
 # Modern Binary Exploitation Reversing Challenges Solutions
+---
+**CONTENTS**
+---
+[IOLI Crackmes](#ioli-crackmes)
+
+[MBE Lab1 Challenges](#the-lab-crackmes)
+
+[Binary Bomb Challenges](#the-bomb-challenges)
+
+---
+
 
 # Intro
 To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges and some of the exploit challenges.
@@ -2752,7 +2763,7 @@ Final path: ['L', 'R', 'L', 'R', 'R', 'L', 'L', 'L', 'R', 'L', 'R', 'L', 'R', 'L
 Final path: ['L', 'L', 'R', 'R']
 Solution path: ['L', 'L', 'R', 'R']
 ```
-Okay lets add this too our solution script and go on with our lives.
+Okay lets add this to our solution script and go on with our lives.
 
 ```py
 ...
@@ -2824,3 +2835,7 @@ if __name__ == '__main__':
     DEBUG = False
     main()
 ```
+
+# Conclusion
+
+That was a good set of RE challenges, I feel ready to go do something actually challenging.
