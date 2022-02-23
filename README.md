@@ -1860,7 +1860,7 @@ def recurse(para: int) -> int:
 recurse(9)
 # 55
 ```
-Our solution script gainst the line
+Our solution script gains the line
 
 ```py
 def main() -> None:
@@ -1902,7 +1902,7 @@ void phase_5(int param_1){
 // array.123 = 'isrveawhobpnutfg'
 ```
 
-I started at an ascii table for a while, got the feel or it, and then wrote a python program to compute this.
+I started at an ascii table for a while, got the feel of it, and then wrote a python program to compute this.
 
 ```py
 x = 'isrveawhobpnutfg'
