@@ -2777,7 +2777,7 @@ Okay lets add this to our solution script and go on with our lives.
 ```
 ### Red Phase
 
-The red phase took some digging, call for no real reason in the end. Though it is probably bad practice, I should have probably just run the binary first, instead of going on an srand() easter egg hunt.
+The red phase took some digging that was all for no real reason in the end. Though it is probably bad practice, I should have probably just run the binary first, instead of going on an srand() easter egg hunt. Which involves searching srand in the function bar which, let me tell you, was exhausting.
 
 ```c
 void red(void){
@@ -2950,6 +2950,8 @@ def main() -> None:
     get_line(bomb, 3)
     get_header(bomb)
 
+    bomb.sendline(b"DISARM")
+    print(str(bomb.recvall(), "utf-8"))
 
 def get_line(bomb, count: int):
     for i in range(0, count):
