@@ -34,6 +34,9 @@ def main() -> None:
     get_line(bomb, 3)
     get_header(bomb)
 
+    bomb.sendline(b"DISARM")
+    print(str(bomb.recvall(), "utf-8"))
+
 
 def get_line(bomb, count: int):
     for i in range(0, count):

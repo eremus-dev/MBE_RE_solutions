@@ -2777,7 +2777,140 @@ Okay lets add this to our solution script and go on with our lives.
 ```
 ### Red Phase
 
+The red phase took some digging, call for no real reason in the end. Though it is probably bad practice, I should have probably just run the binary first, instead of going on an srand() easter egg hunt.
 
+```c
+void red(void){
+  int local_c;
+
+  red_preflight();
+  local_c = 0;
+  while( true ) {
+    if (0x12 < local_c) {
+      wire_red = 0;
+      return;
+    }
+    if (buffer[local_c] != "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[r[2] & 0x1f]) break;
+    r[2] = r[1] << 0x1b | (uint)r[2] >> 5;
+    r[1] = r[0] << 0x1b | (uint)r[1] >> 5;
+    r[0] = (uint)r[0] >> 5;
+    local_c = local_c + 1;
+  }
+  wire_red = wire_red + 1;
+  return;
+
+  void red_preflight(void){
+  uint uVar1;
+  int i;
+
+  uVar1 = rand();
+  r[0] = uVar1 & 0x7fffffff;
+  r[1] = rand();
+  r[2] = rand();
+  for (i = 0; i < 3; i = i + 1) {
+    printf("\x1b[41m \x1b[0m\x1b[31m CLOCK SYNC \x1b[0m%08X\n",r[i]);
+    usleep(500000);
+  }
+  printf("\x1b[41m \x1b[0m\x1b[31m ENTER CLOCK RESYNCHRONIZATION SEQUENCE: \x1b[0m");
+  fgets(buffer,0x15,stdin);
+  return;
+}
+```
+In the red_preflight function we can see three calls to rand. Rand is not cryptographically secure, meaning that calls to rand are predictable. srand is the C function that seeds the rand function (I think it is a mersenne twister?) then all subsequent calls are deterministic. So lets find srand right? Wrong. When you run the red phase it gives you these three rand values. You can just read them from the output input and compute the password.
+
+But that is not what I did.
+
+```c
+void gettimeleft(char *param_1,char *param_2,char *param_3){
+  int iVar1;
+  time_t tVar2;
+  char local_24;
+  char local_20;
+  char local_1c;
+  uint local_c;
+
+  tVar2 = time((time_t *)0x0);
+  local_c = 0x4b9e7348 - tVar2;
+  if ((int)local_c < 0) {
+    local_c = 0;
+  }val
+  srand(local_c);
+  if (((param_1 != (char *)0x0) && (param_2 != (char *)0x0)) && (param_3 != (char *)0x0)) {
+    local_24 = (char)local_c + (char)((int)local_c / 0x3c) * -0x3c;
+    *param_3 = local_24;
+    iVar1 = (int)local_c / 0x3c;
+    local_20 = (char)iVar1 + (char)(iVar1 / 0x3c) * -0x3c;
+    *param_2 = local_20;
+    local_1c = (char)(iVar1 / 0x3c) + (char)((iVar1 / 0x3c) / 0x18) * -0x18;
+    *param_1 = local_1c;
+  }
+  return;
+}
+```
+Srand is only called from the gettimeleft function, which is in turn called from both Entry() and menu. More importantly we can see that the seed to srand is either 0 or time if the number of seconds is greater then the value 0x4B9E7348, spoiler unix time is now 0x6216b209. Which means our srand is seeded with 0. We can simply generate our 3 values used in red.
+
+```py
+from ctypes import CDLL
+
+libc = CDLL("libc.so.6")
+if libc.time(0) > 0x4B9E7348: # we know this is true
+    print("0 seed for srand")
+    libc.srand(0)
+
+r0 = libc.rand() & 0x7fffffff
+r1 = libc.rand()
+r2 = libc.rand()
+
+# r0 = 1804289383
+# r1 = 846930886
+# r2 = 1681692777
+```
+Okay on to the password generation phase. For this we are going to pull the logic of the operations directly out of red() and implement it.
+
+```py
+alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+r0 = 1804289383
+r1 = 846930886
+r2 = 1681692777
+
+password = []
+for i in range(0, 0x13):
+    temp_index = r2 & 0x1f
+    password.append(alpha[temp_index])
+    r2 = r1 << 0x1b | r2 >> 5
+    r1 = r0 << 0x1b | r1 >> 5
+    r0 = r0 >> 5
+
+print(''.join(password))
+# KDG3DU32D38EVVXJM64
+```
+Okay we are done. Our solution script is complete and listed in full bellow. We are greated with the final menu.
+
+```
+---------------------------------------- -- -- -- ---
+     ___  ___    ___  ___    ___  ___   *  *  *  *
+    /  / /  /   /  / /  /   /  / /  /   .  .  .  .
+   /__/ /__/   /__/ /__/   /__/ /__/    .  .  .  .
+     HOURS      MINUTES     SECONDS     *  *  *  *
++--------------------------------------- -- -- -- --+
+|                                                   |
+|      ,   DR. VON NOIZEMAN'S NUCLEAR BOMB   ,      |
+|     /!\ AUTHORIZED ACCESS ONLY - KEEP OUT /!\     |
+|                                                   |
+|                     [DISARM]                      |
+|                                                   |
++---------------------------------------------------+
+```
+Then we send DISARM and the binary segfaults. Which I hope is the correct outcome, since every other time it segfaults it also explodes.
+```
+---------------------------------------- -- -- -- ---
+     ___  ___    ___  ___    ___  ___   *  *  *  *
+    /__  /__    /__  /__    /__  /__    .  .  .  .
+   /    /      /    /      /    /       .  .  .  .
+     HOURS      MINUTES     SECONDS     *  *  *  *
+---------------------------------------- -- -- -- ---
+```
+Here is the final screen we are greeted with.
 
 ### Solution Script
 
