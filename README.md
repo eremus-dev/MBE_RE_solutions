@@ -1,4 +1,4 @@
-# Modern Binary Exploitation Solutions
+# Modern Binary Exploitation Reversing Challenges Solutions
 
 # Intro
 To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges and some of the exploit challenges.
@@ -1571,16 +1571,126 @@ if __name__ == "__main__":
 
 # CMU Bomb
 
-So this is a larger crackme, that gamifies RE by structuring it as a bomb diffusing challenge.
+So this is a larger crackme, that gamifies RE by structuring it as a bomb deffusing challenge. This challenge was really fun, especially the few phases, and the secret phase.
 
 ```sh
 $ file challenges/cmubomb
 challenges/cmubomb: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.0.0, with debug_info, not stripped
 ```
 
-We can see that it is dynamically linked and not stripped. When we disassemble
+We can see that it is dynamically linked and not stripped. When we disassemble it we see there is a main function that has some helper functions that routinely calls the next phase in the chain, from 1 to 6.
 
-## Working:
+```c
+int __regparm3 main(int argc,char **argv)
+
+{
+  undefined4 uVar1;
+  int in_stack_00000004;
+  undefined4 *in_stack_00000008;
+
+  if (in_stack_00000004 == 1) {
+    infile = stdin;
+  }
+  else {
+    if (in_stack_00000004 != 2) {
+      printf("Usage: %s [<input_file>]\n",*in_stack_00000008);
+                    /* WARNING: Subroutine does not return */
+      exit(8);
+    }
+    infile = (_IO_FILE *)fopen((char *)in_stack_00000008[1],"r");
+    if ((FILE *)infile == (FILE *)0x0) {
+      printf("%s: Error: Couldn\'t open %s\n",*in_stack_00000008,in_stack_00000008[1]);
+                    /* WARNING: Subroutine does not return */
+      exit(8);
+    }
+  }
+  initialize_bomb();
+  printf("Welcome to my fiendish little bomb. You have 6 phases with\n");
+  printf("which to blow yourself up. Have a nice day!\n");
+  uVar1 = read_line();
+  phase_1(uVar1);
+  phase_defused();
+  printf("Phase 1 defused. How about the next one?\n");
+  uVar1 = read_line();
+  phase_2(uVar1);
+  phase_defused();
+  printf("That\'s number 2.  Keep going!\n");
+  uVar1 = read_line();
+  phase_3(uVar1);
+  phase_defused();
+  printf("Halfway there!\n");
+  uVar1 = read_line();
+  phase_4(uVar1);
+  phase_defused();
+  printf("So you got that one.  Try this one.\n");
+  uVar1 = read_line();
+  phase_5(uVar1);
+  phase_defused();
+  printf("Good work!  On to the next...\n");
+  uVar1 = read_line();
+  phase_6(uVar1);
+  phase_defused();
+  return 0;
+}
+```
+### Phase 1
+
+Phase 1 is trivial as you might expect. When we disassemble it we see there is a direct comparison between a hardcoded sentence "Public speaking is very easy." and the argument that is passed to our the phase 1 function. When we enter this string we move on to the next phase.
+
+```c
+void phase_1(undefined4 param_1){
+  int iVar1;
+
+  iVar1 = strings_not_equal(param_1,"Public speaking is very easy.");
+  if (iVar1 != 0) {
+    explode_bomb();
+  }
+  return;
+}
+```
+So so far we have our solution script as:
+```python
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+
+    # recieve header
+    print(str(crack.recvline(), "utf-8").strip())
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 1
+    # hardcoded in phase 1
+    crack.sendline(b"Public speaking is very easy.")
+    print(str(crack.recvline(), "utf-8"))
+    ...
+```
+
+### Phase 2
+
+Phase two reads 6 numbers from the string that is passed into the phase2 funciton. We can see that the first number has to be 1 and rest have to obey the logic of num[index+1] = (index + 1) * num[index].
+
+```c
+void phase_2(undefined4 param_1){
+  int iVar1;
+  int aiStack32 [7];
+
+  read_six_numbers(param_1,aiStack32 + 1);
+  if (aiStack32[1] != 1) {
+    explode_bomb();
+  }
+  iVar1 = 1;
+  do {
+    if (aiStack32[iVar1 + 1] != (iVar1 + 1) * aiStack32[iVar1]) {
+      explode_bomb();
+    }
+    iVar1 = iVar1 + 1;
+  } while (iVar1 < 6);
+  return;
+}
+```
+
+We can generate this with a pretty simply python script.
 
 ```py
 coll = [1]
@@ -1589,12 +1699,651 @@ coll = [1]
     ...: print(coll)
 [1, 2, 6, 24, 120, 720]
 ```
+And our solution script gains a line.
 
-phase 5:
+```py
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+...
+    # phase 2
+    # re'd from phase2
+    crack.sendline(b"1 2 6 24 120 720")
+    print(str(crack.recvline(), "utf-8"))
+    ...
+```
+
+### Phase 3
+
+Phase 3 is also pretty straight forward. A string is read in that matches the pattern "%d %c %d". This is then fed into a switch statement. The first integer picks the case 0-7 plus a default. Depending on the case an specific int and character are expected for the next two arguments.
+```c
+void phase_3(char *param_1){
+  int iVar1;
+  char cVar2;
+  uint local_10;
+  char local_9;
+  int local_8;
+
+  iVar1 = sscanf(param_1,"%d %c %d",&local_10,&local_9,&local_8);
+  if (iVar1 < 3) {
+    explode_bomb();
+  }
+  switch(local_10) {
+  case 0:
+    cVar2 = 'q';
+    if (local_8 != 0x309) {
+      explode_bomb();
+    }
+    break;
+  case 1:
+    cVar2 = 'b';
+    if (local_8 != 0xd6) {
+      explode_bomb();
+    }
+    break;
+  case 2:
+    cVar2 = 'b';
+    if (local_8 != 0x2f3) {
+      explode_bomb();
+    }
+    break;
+  case 3:
+    cVar2 = 'k';
+    if (local_8 != 0xfb) {
+      explode_bomb();
+    }
+    break;
+  case 4:
+    cVar2 = 'o';
+    if (local_8 != 0xa0) {
+      explode_bomb();
+    }
+    break;
+  case 5:
+    cVar2 = 't';
+    if (local_8 != 0x1ca) {
+      explode_bomb();
+    }
+    break;
+  case 6:
+    cVar2 = 'v';
+    if (local_8 != 0x30c) {
+      explode_bomb();
+    }
+    break;
+  case 7:
+    cVar2 = 'b';
+    if (local_8 != 0x20c) {
+      explode_bomb();
+    }
+    break;
+  default:
+    cVar2 = 'x';
+    explode_bomb();
+  }
+  if (cVar2 != local_9) {
+    explode_bomb();
+  }
+  return;
+}
+```
+We can pick any case but I pick the first one case 0. So our three arguments are "0 q 777". Our solution script gainst the line.
+
+```py
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+
+...
+
+    # phase 3
+    # we pick the first switch statement from phase
+    crack.sendline(b"0 q 777")
+    print(str(crack.recvline(), "utf-8"))
+    ...
+```
+
+### Phase 4
+
+The forth phase starts to get interesting with the introduction of recursion.
+
+*side note*
+It is also where we need to enter the additional password that leads to the secret phase. So if you have read this far (lol) and wonder what is with the string "austinpowers" I'll talk through it when I talk through the secret phase. Though I think I discovered it around the time I completed the first phase, and was exploring the binary.
+
+```c
+void phase_4(char *param_1){
+  int iVar1;
+  int local_8;
+
+  iVar1 = sscanf(param_1,"%d",&local_8);
+  if ((iVar1 != 1) || (local_8 < 1)) {
+    explode_bomb();
+  }
+  iVar1 = func4(local_8);
+  if (iVar1 != 0x37) {
+    explode_bomb();
+  }
+  return;
+}
+
+int func4(int param_1){
+  int iVar1;
+  int iVar2;
+
+  if (param_1 < 2) {
+    iVar2 = 1;
+  }
+  else {
+    iVar1 = func4(param_1 + -1);
+    iVar2 = func4(param_1 + -2);
+    iVar2 = iVar2 + iVar1;
+  }
+  return iVar2;
+}
+```
+We can see that we read a single number from our entered string then check that it is greater then 1. If so we call func4, we then check func4 returns 0x37 which is 55.
+
+Func4 returns 1 as a base case and then computes a modified fibonacci sequence. So we need to work our how many summed recursive calls return 9. I did this with a dumb python script. I new that it was going to be a low number, I started summing the fibonacci sequence and realised that computers are good at exactly that.
+
+```py
+def recurse(para: int) -> int:
+    if para < 2:
+        y = 1
+    else:
+        x = recurse(para - 1)
+        y = recurse(para - 2)
+        y = x + y
+    return y
+
+recurse(9)
+# 55
+```
+Our solution script gainst the line
+
+```py
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+...
+    # phase 4 and needed password for secret phase
+    crack.sendline(b"9 austinpowers")
+    print(str(crack.recvline(), "utf-8"))
+```
+
+### Phase 5:
+
+Phase 5 is great. Our read in string needs to be length 6. this is then computed as a mapping on the array.123. We can see that our for each index of our string the last byte is & with 16 and this is used to access array.123. This builds another array that must equal the string "giants"
+
+```c
+void phase_5(int param_1){
+  int iVar1;
+  undefined local_c [6];
+  undefined local_6;
+
+  iVar1 = string_length(param_1);
+  if (iVar1 != 6) {
+    explode_bomb();
+  }
+  iVar1 = 0;
+  do {
+    local_c[iVar1] = (&array.123)[(char)(*(byte *)(iVar1 + param_1) & 0xf)];
+    iVar1 = iVar1 + 1;
+  } while (iVar1 < 6);
+  local_6 = 0;
+  iVar1 = strings_not_equal(local_c,"giants");
+  if (iVar1 != 0) {
+    explode_bomb();
+  }
+  return;
+}
+// array.123 = 'isrveawhobpnutfg'
+```
+
+I started at an ascii table for a while, got the feel or it, and then wrote a python program to compute this.
+
 ```py
 x = 'isrveawhobpnutfg'
 for index, letter in enumerate("giants"):
     for i in range(0x61, 0x7A):
         if x[(i) & 0xF] == letter:
             print(f"{index}: {chr(i)} -> {letter}")
+# 0: o -> g
+# 1: p -> i
+# 2: e -> a
+# 2: u -> a
+# 3: k -> n
+# 4: m -> t
+# 5: a -> s
+# 5: q -> s
+```
+This gives us our characters to choose (I artificially limited the range of characters with the hope I could spell something funny, but alas).
+
+```py
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+...
+    # phase 5
+    crack.sendline(b"opekma")
+    print(str(crack.recvline(), "utf-8"))
+```
+
+### Phase 6:
+
+We get to mess around with data structures from here on in. In this phase a linked list. The decompilation is more complex then the phase. The number one thing to pick up on is the &node pointer.
+
+This implies some kind of graph or tree (a tree is a directed acyclic graph *I known*) or in this case a linked list which is tree with each node having only one child.
+
+```c
+void phase_6(undefined4 param_1){
+  llist_node *plVar1;
+  int iVar2;
+  llist_node *plVar3;
+  int iVar4;
+  llist_node *node_1_ptr;
+  llist_node *node_list [6];
+  int scanned_numbers [6];
+
+  node_1_ptr = &node1;
+  read_six_numbers(param_1,scanned_numbers);
+  iVar4 = 0;
+  /* ensure numbers aren't repreated, and are between 1 and 6 */
+  do {
+    iVar2 = iVar4;
+    if (5 < scanned_numbers[iVar4] - 1U) {
+      explode_bomb();
+    }
+    while (iVar2 = iVar2 + 1, iVar2 < 6) {
+      if (scanned_numbers[iVar4] == scanned_numbers[iVar2]) {
+        explode_bomb();
+      }
+    }
+    iVar4 = iVar4 + 1;
+  } while (iVar4 < 6);
+                    /* create ordered list of nodes, according to input */
+  iVar4 = 0;
+  do {
+    iVar2 = 1;
+    plVar3 = node_1_ptr;
+    if (1 < scanned_numbers[iVar4]) {
+      do {
+        plVar3 = (llist_node *)plVar3->child;
+        iVar2 = iVar2 + 1;
+      } while (iVar2 < scanned_numbers[iVar4]);
+    }
+    node_list[iVar4] = plVar3;
+    iVar4 = iVar4 + 1;
+  } while (iVar4 < 6);
+  iVar4 = 1;
+  plVar3 = node_list[0];
+  do {
+    plVar1 = node_list[iVar4];
+    plVar3->child = (undefined *)plVar1;
+    iVar4 = iVar4 + 1;
+    plVar3 = plVar1;
+  } while (iVar4 < 6);
+  plVar1->child = (undefined *)0x0;
+  iVar4 = 0;
+  do {
+    /* Ensure nodes are ordered from highest to lowest */
+    if (node_list[0]->value < *(int *)node_list[0]->child) {
+      explode_bomb();
+    }
+    node_list[0] = (llist_node *)node_list[0]->child;
+    iVar4 = iVar4 + 1;
+  } while (iVar4 < 5);
+  return;
+}
+```
+
+We can see that 6 numbers are read in. The are checked to make sure they are between 1 and 6. That no numbers are repeated. After this the nodes are inserted into an array in the order of the node numbers that we entered.
+
+The nodes are then scanned to ensure that they are ordered highest to lowest. If this succeeds then we are done. We can see from the values below 4, 2, 6, 3, 1, 5 is descending order.
+
+```asm
+                             node6
+           0804b230 b0 01 00 00     int       1B0h                    value
+           0804b234 06 00 00 00     int       6h                      node_number
+           0804b238 00 00 00 00     addr      00000000                child
+
+                             node5
+        0804b23c d4 00 00        llist_node
+                 00 05 00
+                 00 00 30
+           0804b23c d4 00 00 00     int       D4h                     value
+           0804b240 05 00 00 00     int       5h                      node_number
+           0804b244 30 b2 04 08     addr      node6                   child
+
+                             node4
+        0804b248 e5 03 00        llist_node
+                 00 04 00
+                 00 00 3c
+           0804b248 e5 03 00 00     int       3E5h                    value
+           0804b24c 04 00 00 00     int       4h                      node_number
+           0804b250 3c b2 04 08     addr      node5                   child
+
+                             node3
+        0804b254 2d 01 00        llist_node
+                 00 03 00
+                 00 00 48
+           0804b254 2d 01 00 00     int       12Dh                    value
+           0804b258 03 00 00 00     int       3h                      node_number
+           0804b25c 48 b2 04 08     addr      node4                   child
+
+                             node2
+        0804b260 d5 02 00        llist_node
+                 00 02 00
+                 00 00 54
+           0804b260 d5 02 00 00     int       2D5h                    value
+           0804b264 02 00 00 00     int       2h                      node_number
+           0804b268 54 b2 04 08     addr      node3                   child
+
+
+                             node1
+        0804b26c fd 00 00        llist_node
+                 00 01 00
+                 00 00 60
+           0804b26c fd 00 00 00     int       FDh                     value
+           0804b270 01 00 00 00     int       1h                      node_number
+           0804b274 60 b2 04 08     addr      0804b260                child
+```
+
+It was really good to play around with Ghidra's ability to define data structures for this. It turned each of these from a collection of 6 bytes into a structured block of data that held references and enabled ghidra to display connections.
+
+Our solution script is almost done now. All the obvious phases are defused. We now just need to explain the secret phase.
+
+```python
+
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+...
+    # phase 6
+    crack.sendline(b"4 2 6 3 1 5")
+    print(str(crack.recvline(), "utf-8"))
+  ...
+```
+
+### Secret Phase:
+
+So to find the entry point to the secret phase we need to have a look at the phase_defused function that is called after each of our bomb phases.
+```c
+void phase_defused(void) {
+  int iVar1;
+  undefined local_58 [4];
+  undefined local_54 [80];
+
+  if (num_input_strings == 6) {
+    iVar1 = sscanf(input_strings + 0xf0,"%d %s",local_58,local_54);
+    if (iVar1 == 2) {
+      iVar1 = strings_not_equal(local_54,"austinpowers");
+      if (iVar1 == 0) {
+        printf("Curses, you\'ve found the secret phase!\n");
+        printf("But finding it and solving it are quite different...\n");
+        secret_phase();
+      }
+    }
+    printf("Congratulations! You\'ve defused the bomb!\n");
+  }
+  return;
+}
+```
+
+Here we can see that after we have completed all phases if a string is present in one of the entered strings we should enter the secret phase. I'm not going to lie I just addedd the string "austinpowers" after phase 4 because it was an single character. Which we can see the string expects. Turns out it was correct, there is probably a better science available by checking offset into the input strings array.
+
+```c
+void secret_phase(void)
+
+{
+  undefined4 uVar1;
+
+  uVar1 = read_line();
+  iVar2 = __strtol_internal(uVar1,0,10,0);
+  if (1000 < iVar2 - 1U) {
+    explode_bomb();
+  }
+  iVar2 = fun7(&n1,iVar2);
+  if (iVar2 != 7) {
+    explode_bomb();
+  }
+  printf("Wow! You\'ve defused the secret stage!\n");
+  phase_defused();
+  return;
+}
+
+int fun7(int *param_1,int param_2)
+
+{
+  int iVar1;
+
+  if (param_1 == (int *)0x0) {
+    iVar1 = -1;
+  }
+  else if (param_2 < *param_1) {
+    iVar1 = fun7(param_1[1],param_2);
+    iVar1 = iVar1 * 2;
+  }
+  else if (param_2 == *param_1) {
+    iVar1 = 0;
+  }
+  else {
+    iVar1 = fun7(param_1[2],param_2);
+    iVar1 = iVar1 * 2 + 1;
+  }
+  return iVar1;
+}
+```
+Awesome another recursive function this time involving a data structure which in this case is a sorted binary tree.
+
+I did the whole ghidra datastructures thing to make the tree more legible. We have a root node at n1 all the way down to leaf nodes at n4X. We need to get fun7 to return 7.
+
+```asm
+                             n48
+        0804b278 e9 03 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b278 e9 03 00 00     int       3E9h                    val
+           0804b27c 00 00 00 00     addr      00000000                child1
+           0804b280 00 00 00 00     addr      00000000                child2
+
+                             n46
+        0804b284 2f 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b284 2f 00 00 00     int       2Fh                     val
+           0804b288 00 00 00 00     addr      00000000                child1
+           0804b28c 00 00 00 00     addr      00000000                child2
+
+                             n43
+        0804b290 14 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b290 14 00 00 00     int       14h                     val
+           0804b294 00 00 00 00     addr      00000000                child1
+           0804b298 00 00 00 00     addr      00000000                child2
+
+                             n42
+        0804b29c 07 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b29c 07 00 00 00     int       7h                      val
+           0804b2a0 00 00 00 00     addr      00000000                child1
+           0804b2a4 00 00 00 00     addr      00000000                child2
+
+                             n44
+        0804b2a8 23 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b2a8 23 00 00 00     int       23h                     val
+           0804b2ac 00 00 00 00     addr      00000000                child1
+           0804b2b0 00 00 00 00     addr      00000000                child2
+
+                             n47
+        0804b2b4 63 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b2b4 63 00 00 00     int       63h                     val
+           0804b2b8 00 00 00 00     addr      00000000                child1
+           0804b2bc 00 00 00 00     addr      00000000                child2
+
+                             n41
+        0804b2c0 01 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b2c0 01 00 00 00     int       1h                      val
+           0804b2c4 00 00 00 00     addr      00000000                child1
+           0804b2c8 00 00 00 00     addr      00000000                child2
+
+                             n45
+        0804b2cc 28 00 00        tree_node
+                 00 00 00
+                 00 00 00
+           0804b2cc 28 00 00 00     int       28h                     val
+           0804b2d0 00 00 00 00     addr      00000000                child1
+           0804b2d4 00 00 00 00     addr      00000000                child2
+
+                             n34
+        0804b2d8 6b 00 00        tree_node
+                 00 b4 b2
+                 04 08 78
+           0804b2d8 6b 00 00 00     int       6Bh                     val
+           0804b2dc b4 b2 04 08     addr      n47                     child1
+           0804b2e0 78 b2 04 08     addr      n48                     child2
+
+                             n31
+        0804b2e4 06 00 00        tree_node
+                 00 c0 b2
+                 04 08 9c
+           0804b2e4 06 00 00 00     int       6h                      val
+           0804b2e8 c0 b2 04 08     addr      n41                     child1
+           0804b2ec 9c b2 04 08     addr      n42                     child2
+
+                             n33
+        0804b2f0 2d 00 00        tree_node
+                 00 cc b2
+                 04 08 84
+           0804b2f0 2d 00 00 00     int       2Dh                     val
+           0804b2f4 cc b2 04 08     addr      n45                     child1
+           0804b2f8 84 b2 04 08     addr      n46                     child2
+
+                             n32
+        0804b2fc 16 00 00        tree_node
+                 00 90 b2
+                 04 08 a8
+           0804b2fc 16 00 00 00     int       16h                     val
+           0804b300 90 b2 04 08     addr      n43                     child1
+           0804b304 a8 b2 04 08     addr      n44                     child2
+
+                             n22
+        0804b308 32 00 00        tree_node
+                 00 f0 b2
+                 04 08 d8
+           0804b308 32 00 00 00     int       32h                     val
+           0804b30c f0 b2 04 08     addr      n33                     child1
+           0804b310 d8 b2 04 08     addr      n34                     child2
+
+                             n21
+        0804b314 08 00 00        tree_node
+                 00 e4 b2
+                 04 08 fc
+           0804b314 08 00 00 00     int       8h                      val
+           0804b318 e4 b2 04 08     addr      n31                     child1
+           0804b31c fc b2 04 08     addr      n32                     child2
+
+                             n1
+        0804b320 24 00 00        tree_node
+                 00 14 b3
+                 04 08 08
+           0804b320 24 00 00 00     int       24h                     val
+           0804b324 14 b3 04 08     addr      n21                     child1
+           0804b328 08 b3 04 08     addr      n22                     child2
+```
+
+After staring at fun7 for a while what is needed becomes apparent. The tree value is not returned it is just used in a comparison with the value we entered as param2 (which is never changed and always passed to the recursing function). If we need to return 7 we can only do this via getting the correct sequence of return values. In this case
+```c
+int fun7(int *param_1,int param_2)
+
+{
+  int iVar1;
+
+  if (param_1 == (int *)0x0) {
+    iVar1 = -1;
+  }
+  else if (param_2 < *param_1) {
+    iVar1 = fun7(param_1[1],param_2);
+    iVar1 = iVar1 * 2;
+  }
+  else if (param_2 == *param_1) {    <- We need to trigger this as our base case
+    iVar1 = 0;
+  }
+  else {
+    iVar1 = fun7(param_1[2],param_2); <- Then trigger this 3 times
+    iVar1 = iVar1 * 2 + 1;
+  }
+  return iVar1;
+}
+```
+So we need to enter a value that is bigger then all the other nodes so the else case gets triggered. Then we need 0 to be returned. So we need to enter the largest leaf node value. This will compute
+```python
+((((0) * 2 + 1) * 2 + 1) * 2 + 1) = 7
+```
+This means we need to enter the value for N48 which is 0x3E9 or 1001
+
+We are done. This defused the secret stage. The full solution script is below.
+
+#### Solution Script
+```python
+from pwnlib.tubes.process import process
+
+
+def main() -> None:
+
+    # open our process
+    crack = process("./challenges/cmubomb")
+
+    # recieve header
+    print(str(crack.recvline(), "utf-8").strip())
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 1
+    # hardcoded in phase 1
+    crack.sendline(b"Public speaking is very easy.")
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 2
+    # re'd from phase2
+    crack.sendline(b"1 2 6 24 120 720")
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 3
+    # we pick the first switch statement from phase
+    crack.sendline(b"0 q 777")
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 4 and needed password for secret phase
+    crack.sendline(b"9 austinpowers")
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 5
+    crack.sendline(b"opekma")
+    print(str(crack.recvline(), "utf-8"))
+
+    # phase 6
+    crack.sendline(b"4 2 6 3 1 5")
+    print(str(crack.recvline(), "utf-8"))
+
+    # secret phase
+    crack.sendline(b"1001")
+    print(str(crack.recvline(), "utf-8"))
+    print(str(crack.recvline(), "utf-8"))
+    print(str(crack.recvline(), "utf-8"))
+
+
+if __name__ == "__main__":
+    main()
 ```

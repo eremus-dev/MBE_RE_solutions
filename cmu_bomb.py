@@ -37,6 +37,12 @@ def main() -> None:
     crack.sendline(b"4 2 6 3 1 5")
     print(str(crack.recvline(), "utf-8"))
 
+    # secret phase
+    crack.sendline(b"1001")
+    print(str(crack.recvline(), "utf-8"))
+    print(str(crack.recvline(), "utf-8"))
+    print(str(crack.recvline(), "utf-8"))
+
 
 if __name__ == "__main__":
     main()
