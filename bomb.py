@@ -49,5 +49,5 @@ def get_header(bomb):
 
 
 if __name__ == '__main__':
-    DEBUG = False
+    DEBUG = True
     main()
