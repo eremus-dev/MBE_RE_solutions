@@ -1,10 +1,10 @@
-# Modern Binary Exploitation Reversing Challenges Solutions
+# Reversing Challenges Solutions
 ---
-**CONTENTS**
+**CHALLENGE CONTENTS**
 ---
 [IOLI Crackmes](#ioli-crackmes)
 
-[MBE Lab1 Challenges](#the-lab-crackmes)
+[MBE Lab Challenges](#the-lab-crackmes)
 
 [Binary Bomb Challenges](#the-bomb-challenges)
 
@@ -12,7 +12,12 @@
 
 
 # Intro
-To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges and some of the exploit challenges.
+
+This is a repo for write ups of various reversing challenges I've completed.
+
+All challenge binaries, solution scripts as well as set by step explanations are available.
+
+To get back into the swing of reversing challenges I'm going to start with CMU's Modern Binary Exploitation reversing challenges and will probably set up a separate repo for writeups on some of the exploit challenges.
 
 All the reversing for these challenges happens in Ghidra, all the solutions implemented in python with pwnlib to do the actual interesting work for us.
 
