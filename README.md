@@ -1586,6 +1586,524 @@ if __name__ == "__main__":
 
     main(name, serial)
 ```
+## Lab1x Series
+
+These are the assessed lab challenges from Lab1 of the MBE course. C, B, and A are the grades for the lab from completing each of the challenges. So C the easiest, A the hardest.
+
+## Lab 1C
+### Reversing - High level Description
+
+We can see straight away that this binary is not stripped
+```sh
+$ file lab1C
+lab1C: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.24, BuildID[sha1]=1522352e3de50fd6d180831ba18e2bca16be4204, not stripped
+```
+When we load it into Ghidra and jump to the main function we can see that a password is read from stdin using scanf. The scanf call reads an integer. If the password is equal to 0x149a or 5274 then the user is dropped into a shell. If not then "Invalid Password!!!" is printed to screen
+
+```c
+bool main(void){
+  int password_store [4];
+
+  puts("-----------------------------");
+  puts("--- RPISEC - CrackMe v1.0 ---");
+  puts("-----------------------------");
+  printf("\nPassword: ");
+  __isoc99_scanf("%d",password_store);
+  if (password_store[0] != 0x149a) {
+    puts("\nInvalid Password!!!");
+  }
+  else {
+    puts("\nAuthenticated!");
+    system("/bin/sh");
+  }
+  return password_store[0] != 0x149a;
+}
+```
+When we execute the challenge we can see we are right.
+
+```sh
+$ ./lab1C
+-----------------------------
+--- RPISEC - CrackMe v1.0 ---
+-----------------------------
+
+Password: 5274
+
+Authenticated!
+$
+```
+Easy pass.
+
+### Solution Script
+
+```py
+from pwnlib.tubes.process import process
+
+
+def main(password: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/lab1C')
+
+    # receive empty lines
+    for i in range(0, 4):
+        print(str(crack.recvline(), "utf-8").strip())
+
+    # send our password
+    password = bytes(f"{password}", "utf8")
+    crack.sendline(password)
+
+    # receive our prompt and our praise or handle exit with wrong answer
+    print(str(crack.recvline(), "utf-8").strip())
+    print(str(crack.recv(timeout=1), "utf-8").strip())
+
+
+if __name__ == "__main__":
+
+    password = 5274
+    main(password)
+```
+
+## Lab 1B
+### Reversing - High level Description
+
+When we start reversing challenge 1B we can see that this binary is supposedly stripped.
+```sh
+$ file ./challenges/lab1B
+./challenges/lab1B: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.24, BuildID[sha1]=c9f07b581bd8d97cdc7c0ff1a288e20aea2df0f5, stripped
+```
+But Ghidra provides us with a labelled main function. Not sure if this is as a result of Ghidra's analysis or is just the nature of the binary. Either way when we check _libc_start_main we can see that main is correct and not some form of subtefuge.
+
+```asm
+
+                             undefined _start()
+                             _start
+        08048852 5e              POP              ESI
+        08048853 89 e1           MOV              ECX,ESP
+        08048855 83 e4 f0        AND              ESP,0xfffffff0
+        08048858 50              PUSH             EAX
+        08048859 54              PUSH             ESP=>local_8
+        0804885a 52              PUSH             EDX
+        0804885b 68 e0 8c        PUSH             __libc_csu_fini
+                 04 08
+        08048860 68 70 8c        PUSH             __libc_csu_init
+                 04 08
+        08048865 51              PUSH             ECX
+        08048866 56              PUSH             ESI
+        08048867 68 e4 8b        PUSH             main
+                 04 08
+        0804886c e8 af ff        CALL             <EXTERNAL>::__libc_start_main                         undefined __libc_start_main()
+                 ff ff
+```
+Okay lets look at main.
+
+```c
+undefined4 main(void){
+  uint __seed;
+
+  __seed = time((time_t *)0x0);
+  srand(__seed);
+  puts(".---------------------------.");
+  puts("|-- RPISEC - CrackMe v2.0 --|");
+  puts("\'---------------------------\'");
+  printf("\nPassword: ");
+  __isoc99_scanf();
+  test();
+  return 0;
+}
+```
+We can see that there is a call to srand with time, then a password is accepted and test is called.
+
+```c
+undefined4 main(void){
+  uint __seed;
+
+  __seed = time((time_t *)0x0);
+  srand(__seed);
+  puts(".---------------------------.");
+  puts("|-- RPISEC - CrackMe v2.0 --|");
+  puts("\'---------------------------\'");
+  printf("\nPassword: ");
+  __isoc99_scanf();
+  test();
+  return 0;
+}
+```
+Here we can see that a password is accepted, in this case it is read as an integer by scanf. Then test is called with two arguments. One a constant 0x1337d00d or 322424845, and the other argument the number read in as the password. This is more obvious from the assembly.
+
+```asm
+        08048c3a 8d 44 24 1c     LEA              EAX=>local_10,[ESP + 0x1c]
+        08048c3e 89 44 24 04     MOV              dword ptr [ESP + local_28],EAX
+        08048c42 c7 04 24        MOV              dword ptr [ESP]=>local_2c,s_%d_08048dee               = "%d"
+                 ee 8d 04 08
+        08048c49 e8 f2 fb        CALL             <EXTERNAL>::__isoc99_scanf                            undefined __isoc99_scanf()
+                 ff ff
+        08048c4e 8b 44 24 1c     MOV              EAX,dword ptr [ESP + local_10]
+        08048c52 c7 44 24        MOV              dword ptr [ESP + local_28],0x1337d00d
+                 04 0d d0
+                 37 13
+        08048c5a 89 04 24        MOV              dword ptr [ESP]=>local_2c,EAX
+        08048c5d e8 12 fe        CALL             test                                                  undefined test(undefined4 param_
+                 ff ff
+        08048c62 b8 00 00        MOV              EAX,0x0
+                 00 00
+```
+So lets look at the test function.
+
+```c
+void test(int param_1,int param_2){
+  EVP_PKEY_CTX *pEVar1;
+  uchar *in_stack_ffffffd8;
+  size_t *in_stack_ffffffdc;
+  uchar *in_stack_ffffffe0;
+  size_t in_stack_ffffffe4;
+
+  pEVar1 = (EVP_PKEY_CTX *)(param_2 - param_1);
+  switch(pEVar1) {
+  default:
+    pEVar1 = (EVP_PKEY_CTX *)rand();
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x1:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x2:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x3:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x4:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x5:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x6:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x7:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x8:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x9:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0xa:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0xb:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0xc:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0xd:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0xe:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0xf:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x10:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x11:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x12:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x13:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x14:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+    break;
+  case (EVP_PKEY_CTX *)0x15:
+    decrypt(pEVar1,in_stack_ffffffd8,in_stack_ffffffdc,in_stack_ffffffe0,in_stack_ffffffe4);
+  }
+  return;
+}
+```
+We can see that test is a switch statement that uses the constant and our password to select a case that then calls decrypt.  Let's look at descrypt.
+
+```c
+int decrypt(EVP_PKEY_CTX *ctx,uchar *out,size_t *outlen,uchar *in,size_t inlen){
+  size_t sVar1;
+  int iVar2;
+  int in_GS_OFFSET;
+  uint local_2c;
+  undefined4 local_21;
+  undefined4 local_1d;
+  undefined4 local_19;
+  undefined4 local_15;
+  undefined local_11;
+  int local_10;
+
+  local_10 = *(int *)(in_GS_OFFSET + 0x14);
+  local_21 = 0x757c7d51;
+  local_1d = 0x67667360;
+  local_19 = 0x7b66737e;
+  local_15 = 0x33617c7d;
+  local_11 = 0;
+  sVar1 = strlen((char *)&local_21);
+  for (local_2c = 0; local_2c < sVar1; local_2c = local_2c + 1) {
+    *(byte *)((int)&local_21 + local_2c) = (byte)ctx ^ *(byte *)((int)&local_21 + local_2c);
+  }
+  iVar2 = strcmp((char *)&local_21,"Congratulations!");
+  if (iVar2 == 0) {
+    system("/bin/sh");
+  }
+  else {
+    puts("\nInvalid Password!");
+  }
+  if (local_10 == *(int *)(in_GS_OFFSET + 0x14)) {
+    return 0;
+  }
+                    /* WARNING: Subroutine does not return */
+  __stack_chk_fail();
+}
+```
+Okay we have a single byte xor run over some hardcoded strings inside the binary. We can see that this single byte xor'd string is then compared to the string "Congratulations!". We can see that the byte that is used for the single byte xor is decided by the case that is taken from text. Okay lets break this xor, that way we'll know which case to take.
+```py
+import binascii
+
+
+def bruteforce() -> None:
+    string_parts = ["757c7d51", "67667360", "7b66737e", "33617c7d"]
+
+    string = []
+    for i in string_parts:
+        y = []
+        i = binascii.unhexlify(i)
+        y += i
+        string += y[::-1]
+
+    for i in range(0, 255):
+        output = ''.join([chr(c ^ i) for c in string])
+        if output == "Congratulations!":
+            print(f"Key: {i} -> {output}")
+
+
+bruteforce()
+# Key: 18 -> Congratulations!
+```
+Okay we have our key. We need to take the 18th case or 0x12. We need our password to be 18 = 0x1337d00d - Password -> Password = 0x1337d00d - 18 = 322424827 or (0x1337cffb). So lets give it a whirl.
+
+```sh
+$ ./challenges/lab1B
+.---------------------------.
+|-- RPISEC - CrackMe v2.0 --|
+'---------------------------'
+
+Password: 322424827
+$
+```
+This drops us into a shell (on my vm I get a weird prompt but have removed the output from the writeup).
+
+If we change the password we get an invalid prompt. Great work B.
+
+### Solution Script
+```py
+from pwnlib.tubes.process import process
+
+
+def main(password: str) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/lab1B')
+
+    # receive empty lines
+    for i in range(0, 3):
+        print(str(crack.recvline(), "utf-8").strip())
+
+    # send our password
+    password = bytes(f"{password}", "utf8")
+    crack.sendline(password)
+
+    # receive our prompt and our praise or handle exit with wrong answer
+    print(str(crack.recvline(), "utf-8").strip())
+    print(str(crack.recv(timeout=1), "utf-8").strip())
+
+    crack.sendline(b"ls")
+    print("Password silently accepted executing shell command")
+    print(str(crack.recv(timeout=1), "utf-8").strip())
+    crack.sendline(b"exit")
+
+
+if __name__ == "__main__":
+
+    password = "322424827"
+    main(password)
+```
+# Lab1A
+
+Alright lets get the A grade done. This binary is stripped (apparently).
+
+```sh
+$ file ./challenges/lab1A
+./challenges/lab1A: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.24, BuildID[sha1]=8207a5ad5821e47f25412161c60dc24fd2f3386e, stripped
+```
+Weirdly this binary is also not actually stripped. We have access to the function names in the binary.
+
+```c
+bool main(void){
+  int iVar1;
+  int in_GS_OFFSET;
+  char local_34 [32];
+  int local_14;
+
+  local_14 = *(int *)(in_GS_OFFSET + 0x14);
+  puts(".---------------------------.");
+  puts("|---------  RPISEC  --------|");
+  puts("|+ SECURE LOGIN SYS v. 3.0 +|");
+  puts("|---------------------------|");
+  puts("|~- Enter your Username:  ~-|");
+  puts("\'---------------------------\'");
+  fgets(local_34,0x20,stdin);
+  puts(".---------------------------.");
+  puts("| !! NEW ACCOUNT DETECTED !!|");
+  puts("|---------------------------|");
+  puts("|~- Input your serial:    ~-|");
+  puts("\'---------------------------\'");
+  __isoc99_scanf();
+  iVar1 = auth();
+  if (iVar1 == 0) {
+    puts("Authenticated!");
+    system("/bin/sh");
+  }
+  if (local_14 != *(int *)(in_GS_OFFSET + 0x14)) {
+                    /* WARNING: Subroutine does not return */
+    __stack_chk_fail();
+  }
+  return iVar1 != 0;
+}
+```
+Alright we've got a serial generator, just like the previous lab 3rd lab challenge. Main calls auth() and if the computed serial matches the input serial we are golden. Lets look at auth
+
+```c
+undefined4 auth(char *username,uint serial_num){
+  size_t length;
+  undefined4 ret_val;
+  long ptrace_check;
+  int i;
+  uint computed_serial;
+
+  length = strcspn(username,"\n");
+  username[length] = '\0';
+  length = strnlen(username,0x20);
+  if ((int)length < 6) {
+    ret_val = 1;
+  }
+  else {
+    ptrace_check = ptrace(PTRACE_TRACEME);
+    if (ptrace_check == -1) {
+      puts("\x1b[32m.---------------------------.");
+      puts("\x1b[31m| !! TAMPERING DETECTED !!  |");
+      puts("\x1b[32m\'---------------------------\'");
+      ret_val = 1;
+    }
+    else {
+      computed_serial = ((int)username[3] ^ 0x1337U) + 0x5eeded;
+      for (i = 0; i < (int)length; i = i + 1) {
+        if (username[i] < ' ') {
+          return 1;
+        }
+        computed_serial = computed_serial + ((int)username[i] ^ computed_serial) % 0x539;
+      }
+      if (serial_num == computed_serial) {
+        ret_val = 0;
+      }
+      else {
+        ret_val = 1;
+      }
+    }
+  }
+  return ret_val;
+}
+```
+Right we can see there is some hardcoded values that are altered, then the entire username is iterated over to yield a serial number. Alright. Lets write a python script to solve this for us.
+
+Also worth mentioning there is an anti-debugging call by checking if calls to ptrace fail (this happens when a binary is already being debugged).
+
+```py
+def generate_serial(username: str) -> int:
+    acc = (ord(username[3]) ^ 0x1337) + 0x5eeded
+
+    for i in range(0, len(username)):
+        acc += (ord(username[i]) ^ acc) % 0x539
+
+    return acc
+
+
+name = input("Enter username: ")
+print(generate_serial(name))
+```
+Cool we can generate our serial number now.
+```sh
+$ python working/serial_generator.py
+Enter username: eremus
+6232823
+```
+Okay lets give this a go.
+```sh
+$ ./challenges/lab1A
+.---------------------------.
+|---------  RPISEC  --------|
+|+ SECURE LOGIN SYS v. 3.0 +|
+|---------------------------|
+|~- Enter your Username:  ~-|
+'---------------------------'
+eremus
+.---------------------------.
+| !! NEW ACCOUNT DETECTED !!|
+|---------------------------|
+|~- Input your serial:    ~-|
+'---------------------------'
+6232823
+Authenticated!
+```
+Awesome, lets add this to our solution script. Top marks (pretty easy)!
+
+### Solution Script
+```py
+from pwnlib.tubes.process import process
+
+
+def main(username: str, serial: int) -> None:
+    # open connection to our challenge binary
+    crack = process('./challenges/lab1A')
+
+    # receive header
+    for i in range(0, 6):
+        print(str(crack.recvline(), "utf-8").strip())
+
+    # send our username
+    username = bytes(f"{username}", "utf8")
+    crack.sendline(username)
+
+    # receive serial header
+    for i in range(0, 5):
+        print(str(crack.recvline(), "utf-8").strip())
+
+    # send our serial
+    serial = bytes(f"{serial}", "utf8")
+    crack.sendline(serial)
+
+    # receive authentication message
+    print(str(crack.recvline(), "utf-8").strip())
+
+
+if __name__ == "__main__":
+
+    username = "eremus"
+    serial = 6232823
+    main(username, serial)
+```
+
 # The Bomb Challenges
 
 These are great fun. I think the other two sets where just warming up. Data structures, some fun hard problems (pretty easy in the scheme of CTF challenges, but still good fun).
